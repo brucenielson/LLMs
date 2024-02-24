@@ -12,8 +12,11 @@ import os
 class EBookSearch:
 
     # noinspection SpellCheckingInspection
-    def __init__(self, model_name='sentence-transformers/multi-qa-mpnet-base-dot-v1'):
+    def __init__(self, full_file_name, model_name='sentence-transformers/multi-qa-mpnet-base-dot-v1'):
         self.model = SentenceTransformer(model_name)
+        self.full_file_name = full_file_name
+        self.chapters = None
+        self.embeddings = None
 
     @staticmethod
     def format_paragraphs(chapters, min_words_per_para=150, max_words_per_para=500):
@@ -170,19 +173,20 @@ class EBookSearch:
         # Return the chapters and the embeddings
         return chapters, embeddings
 
-    def preview_epub(self, epub_file_name, do_strip=True):
+    def preview_epub(self, do_strip=True):
+        epub_file_name = self.full_file_name
         assert self.get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
         chapters = self.epub_to_chapters(epub_file_name, do_strip)
         self.print_previews(chapters)
         return chapters
 
-    def ebook_semantic_search(self, query, file, do_preview=False,
-                              do_strip=True, first_chapter=0, last_chapter=math.inf):
+    def ebook_preview(self, do_strip=True):
+        self.preview_epub(do_strip)
+
+    def load_embeddings(self, do_strip=True, first_chapter=0, last_chapter=math.inf):
+        file = self.full_file_name
         # First check if we have an embeddings file for this epub which is a json file with the same name as the epub
         if self.get_ext(file) == '.epub':
-            if do_preview:
-                self.preview_epub(file, do_strip)
-                return
             json_file = self.switch_ext(file, '.json')
             if not exists(json_file):
                 self.embed_epub(file, do_strip, first_chapter, last_chapter)
@@ -191,18 +195,27 @@ class EBookSearch:
         assert self.get_ext(file) == '.json', 'Should now be a json file.'
         # Load the embeddings from the json file
         chapters, embeddings = self.load_json_file(file)
-        if embeddings is not None:
-            self.search(query, embeddings, file, chapters)
+        self.chapters = chapters
+        self.embeddings = embeddings
+
+    def ebook_semantic_search(self, query, do_strip=True, first_chapter=0, last_chapter=math.inf):
+        self.load_embeddings(do_strip, first_chapter, last_chapter)
+        if self.embeddings is not None:
+            self.search(query, self.embeddings, self.full_file_name, self.chapters)
 
 
-def test_ebook_search():
-    ebook_search = EBookSearch()
+def test_ebook_search(do_preview=False, do_strip=True):
     # noinspection SpellCheckingInspection
     book_path = \
         r'D:\Documents\Papers\EPub Books\Karl R. Popper - The Logic of Scientific Discovery-Routledge (2002).epub'
-    query = 'Why do we need to corroborate theories at all?'
-    ebook_search.ebook_semantic_search(query, book_path, do_preview=False)
+    ebook_search = EBookSearch(book_path)
+    if do_preview:
+        ebook_search.ebook_preview(do_strip=do_strip)
+        return
+    else:
+        query = 'Why do we need to corroborate theories at all?'
+        ebook_search.ebook_semantic_search(query, do_strip=do_strip)
 
 
 if __name__ == "__main__":
-    test_ebook_search()
+    test_ebook_search(do_preview=False)
