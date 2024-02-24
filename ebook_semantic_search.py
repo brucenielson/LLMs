@@ -16,30 +16,21 @@ max_words_per_para = 500
 model = SentenceTransformer('sentence-transformers/multi-qa-mpnet-base-dot-v1')
 
 
-def part_to_chapter(part):
-    soup = BeautifulSoup(part.get_body_content(), 'html.parser')
-    paragraphs = [para.get_text().strip() for para in soup.find_all('p')]
-    paragraphs = [para for para in paragraphs if len(para) > 0]
-    if len(paragraphs) == 0:
-        return None
-    title = ' '.join([heading.get_text() for heading in soup.find_all('h1')])
-    return {'title': title, 'paras': paragraphs}
-
-
 def format_paras(chapters):
     for i in range(len(chapters)):
-        for j in range(len(chapters[i]['paras'])):
-            split_para = chapters[i]['paras'][j].split()
+        for j in range(len(chapters[i]['paragraphs'])):
+            split_para = chapters[i]['paragraphs'][j].split()
             if len(split_para) > max_words_per_para:
-                chapters[i]['paras'].insert(j + 1, ' '.join(split_para[max_words_per_para:]))
-                chapters[i]['paras'][j] = ' '.join(split_para[:max_words_per_para])
+                chapters[i]['paragraphs'].insert(j + 1, ' '.join(split_para[max_words_per_para:]))
+                chapters[i]['paragraphs'][j] = ' '.join(split_para[:max_words_per_para])
             k = j
-            while len(chapters[i]['paras'][j].split()) < min_words_per_para and k < len(chapters[i]['paras']) - 1:
-                chapters[i]['paras'][j] += '\n' + chapters[i]['paras'][k + 1]
-                chapters[i]['paras'][k + 1] = ''
+            while (len(chapters[i]['paragraphs'][j].split()) < min_words_per_para
+                   and k < len(chapters[i]['paragraphs']) - 1):
+                chapters[i]['paragraphs'][j] += '\n' + chapters[i]['paragraphs'][k + 1]
+                chapters[i]['paragraphs'][k + 1] = ''
                 k += 1
 
-        chapters[i]['paras'] = [para.strip() for para in chapters[i]['paras'] if len(para.strip()) > 0]
+        chapters[i]['paragraphs'] = [para.strip() for para in chapters[i]['paragraphs'] if len(para.strip()) > 0]
         if len(chapters[i]['title']) == 0:
             chapters[i]['title'] = '(Unnamed) Chapter {no}'.format(no=i + 1)
 
@@ -47,28 +38,15 @@ def format_paras(chapters):
 def print_previews(chapters):
     for (i, chapter) in enumerate(chapters):
         title = chapter['title']
-        wc = len(' '.join(chapter['paras']).split(' '))
-        paras = len(chapter['paras'])
-        initial = chapter['paras'][0][:30]
+        wc = len(' '.join(chapter['paragraphs']).split(' '))
+        paras = len(chapter['paragraphs'])
+        initial = chapter['paragraphs'][0][:30]
         preview = '{}: {} | wc: {} | paras: {}\n"{}..."\n'.format(i, title, wc, paras, initial)
         print(preview)
 
 
-def get_chapters(book_path, print_chapter_previews, first_chapter, last_chapter):
-    book = epub.read_epub(book_path)
-    item_doc = book.get_items_of_type(ebooklib.ITEM_DOCUMENT)
-    parts = list(item_doc)
-    chapters = [part_to_chapter(part) for part in parts if part_to_chapter(part) is not None]
-    last_chapter = min(last_chapter, len(chapters) - 1)
-    chapters = chapters[first_chapter:last_chapter + 1]
-    format_paras(chapters)
-    if print_chapter_previews:
-        print_previews(chapters)
-    return chapters
-
-
 def get_embeddings(texts):
-    if type(texts) == str:
+    if type(texts) is str:
         texts = [texts]
     texts = [text.replace("\n", " ") for text in texts]
     return model.encode(texts)
@@ -78,25 +56,23 @@ def read_json(json_path):
     print('Loading embeddings from "{}"'.format(json_path))
     with open(json_path, 'r') as f:
         values = json.load(f)
-    return (values['chapters'], np.array(values['embeddings']))
+    return values['chapters'], np.array(values['embeddings'])
 
 
-def read_epub(book_path, json_path, preview_mode, first_chapter, last_chapter):
-    chapters = get_chapters(book_path, preview_mode, first_chapter, last_chapter)
-    if preview_mode:
-        return (chapters, None)
-    print('Generating embeddings for chapters {}-{} in "{}"\n'.format(first_chapter, last_chapter, book_path))
-    paras = [para for chapter in chapters for para in chapter['paras']]
+def read_epub(book_path, json_path, first_chapter, last_chapter):
+    chapters = epub_to_html(book_path, first_chapter, last_chapter)
+    print('Generating embeddings for {}"\n'.format(book_path))
+    paras = [para for chapter in chapters for para in chapter['paragraphs']]
     embeddings = get_embeddings(paras)
     try:
         with open(json_path, 'w') as f:
             json.dump({'chapters': chapters, 'embeddings': embeddings.tolist()}, f)
     except:
         print('Failed to save embeddings to "{}"'.format(json_path))
-    return (chapters, embeddings)
+    return chapters, embeddings
 
 
-def process_file(path, preview_mode=False, first_chapter=0, last_chapter=math.inf):
+def process_file(path, first_chapter=0, last_chapter=math.inf):
     values = None
     if path[-4:] == 'json':
         values = read_json(path)
@@ -105,7 +81,7 @@ def process_file(path, preview_mode=False, first_chapter=0, last_chapter=math.in
         if exists(json_path):
             values = read_json(json_path)
         else:
-            values = read_epub(path, json_path, preview_mode, first_chapter, last_chapter)
+            values = read_epub(path, json_path, first_chapter, last_chapter)
     else:
         print('Invalid file format. Either upload an epub or a json of book embeddings.')
     return values
@@ -118,37 +94,71 @@ def print_and_write(text, f):
 
 def index_to_para_chapter_index(index, chapters):
     for chapter in chapters:
-        paras_len = len(chapter['paras'])
+        paras_len = len(chapter['paragraphs'])
         if index < paras_len:
-            return chapter['paras'][index], chapter['title'], index
+            return chapter['paragraphs'][index], chapter['title'], index
         index -= paras_len
     return None
 
 
 def search(query, embeddings, path, chapters, n=3):
     query_embedding = get_embeddings(query)[0]
-    scores = np.dot(embeddings, query_embedding) / (np.linalg.norm(embeddings, axis=1) * np.linalg.norm(query_embedding))
+    scores = (np.dot(embeddings, query_embedding) /
+              (np.linalg.norm(embeddings, axis=1) * np.linalg.norm(query_embedding)))
     results = sorted([i for i in range(len(embeddings))], key=lambda i: scores[i], reverse=True)[:n]
 
     f = open('result.text', 'a')
-    header_msg ='Results for query "{}" in "{}"'.format(query, path)
+    header_msg = 'Results for query "{}" in "{}"'.format(query, path)
     print_and_write(header_msg, f)
     for index in results:
         para, title, para_no = index_to_para_chapter_index(index, chapters)
-        result_msg = '\nChapter: "{}", Passage number: {}, Score: {:.2f}\n"{}"'.format(title, para_no, scores[index], para)
+        result_msg = ('\nChapter: "{}", Passage number: {}, Score: {:.2f}\n"{}"'
+                      .format(title, para_no, scores[index], para))
         print_and_write(result_msg, f)
     print_and_write('\n', f)
 
 
-def embed_epub(epub_file_name, preview_mode=False, first_chapter=0, last_chapter=math.inf):
+def epub_sections_to_chapter(section):
+    # Convert to HTML and extract paragraphs
+    html = BeautifulSoup(section.get_body_content(), 'html.parser')
+    p_tag_list = html.find_all('p')
+    text_list = [para.get_text().strip() for para in p_tag_list if para.get_text().strip()]
+    if len(text_list) == 0:
+        return None
+    # Extract and process headings
+    heading_list = [heading.get_text().strip() for heading in html.find_all('h1')]
+    title = ' '.join(heading_list)
+    return {'title': title, 'paragraphs': text_list}
+
+
+def epub_to_html(epub_file_name, first_chapter=0, last_chapter=math.inf):
+    book = epub.read_epub(epub_file_name)
+    item_doc = book.get_items_of_type(ebooklib.ITEM_DOCUMENT)
+    book_sections = list(item_doc)
+    chapters = [result for section in book_sections if (result := epub_sections_to_chapter(section)) is not None]
+    chapters = strip_blank_chapters(chapters, first_chapter, last_chapter)
+    format_paras(chapters)
+    return chapters
+
+
+def strip_blank_chapters(chapters, first_chapter=0, last_chapter=math.inf, min_paragraph_size=2000):
+    # This takes a list of chapters and removes the ones outside the range [first_chapter, last_chapter]
+    # It also removes 'empty' chapters, i.e. those that are very small and likely a title page, etc.
+    last_chapter = min(last_chapter, len(chapters) - 1)
+    chapters = chapters[first_chapter:last_chapter + 1]
+    # Filter out chapters with small total paragraph size
+    chapters = [chapter for chapter in chapters if sum(len(para) for para
+                                                       in chapter['paragraphs']) >= min_paragraph_size]
+    return chapters
+
+
+def embed_epub(epub_file_name, first_chapter=0, last_chapter=math.inf):
     assert get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
     json_file_name = switch_ext(epub_file_name, '.json')
-    chapters = get_chapters(epub_file_name, preview_mode, first_chapter, last_chapter)
-    if preview_mode:
-        return chapters, None
-    print('Generating embeddings for chapters {}-{} in "{}"\n'
-          .format(first_chapter, last_chapter, epub_file_name))
-    paras = [para for chapter in chapters for para in chapter['paras']]
+    chapters = epub_to_html(epub_file_name, first_chapter, last_chapter)
+    print('Generating embeddings for "{}"\n'
+          .format(epub_file_name))
+    paras = [para for chapter in chapters for para in chapter['paragraphs']]
     embeddings = get_embeddings(paras)
     try:
         with open(json_file_name, 'w') as f:
@@ -162,6 +172,13 @@ def embed_epub(epub_file_name, preview_mode=False, first_chapter=0, last_chapter
     return chapters, embeddings
 
 
+def preview_epub(epub_file_name, do_strip=True):
+    assert get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
+    chapters = epub_to_html(epub_file_name, do_strip)
+    print_previews(chapters)
+    return chapters
+
+
 def create_embeddings_json(epub_file_name):
     # Assert this is an epub file
     assert get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
@@ -172,7 +189,7 @@ def create_embeddings_json(epub_file_name):
         # Delete it if it exists
         os.remove(json_file_name)
 
-    chapters, embeddings = embed_epub(epub_file_name, preview_mode=False)
+    chapters, embeddings = embed_epub(epub_file_name)
     return embeddings
 
 
@@ -184,10 +201,12 @@ def switch_ext(full_file_name, new_ext):
     return full_file_name[:full_file_name.rfind('.')] + new_ext
 
 
-def ebook_semantic_search(query, file):
-
+def ebook_semantic_search(query, file, do_preview=False, do_strip=True):
     # First check if we have an embeddings file for this epub which is a json file with the same name as the epub
     if get_ext(file) == '.epub':
+        if do_preview:
+            preview_epub(file, do_strip)
+            return
         json_file = switch_ext(file, '.json')
         if not exists(json_file):
             create_embeddings_json(file)
@@ -195,11 +214,12 @@ def ebook_semantic_search(query, file):
 
     assert get_ext(file) == '.json', 'Should now be a json file.'
     # Load the embeddings from the json file
-    chapters, embeddings = process_file(file, preview_mode=False)
-    search(query, embeddings, file, chapters)
+    chapters, embeddings = process_file(file)
+    if embeddings is not None:
+        search(query, embeddings, file, chapters)
 
 
 if __name__ == "__main__":
     book_path = \
         r'D:\Documents\Papers\EPub Books\Karl R. Popper - The Logic of Scientific Discovery-Routledge (2002).epub'
-    ebook_semantic_search('Why do we need to corroborate theories at all?', book_path)
+    ebook_semantic_search('Why do we need to corroborate theories at all?', book_path, do_preview=False)
