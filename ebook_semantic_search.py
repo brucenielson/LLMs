@@ -1,7 +1,7 @@
 # https://colab.research.google.com/drive/1PDT-jho3Y8TBrktkFVWFAPlc7PaYvlUG?usp=sharing
 # https://colab.research.google.com/drive/1PDT-jho3Y8TBrktkFVWFAPlc7PaYvlUG?usp=sharing#scrollTo=zCJx4wZ7fSAB
 
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
 import json
 import ebooklib
 from ebooklib import epub
@@ -59,17 +59,25 @@ def read_json(json_path):
     return values['chapters'], np.array(values['embeddings'])
 
 
-def read_epub(book_path, json_path, first_chapter, last_chapter):
-    chapters = epub_to_html(book_path, first_chapter, last_chapter)
-    print('Generating embeddings for {}"\n'.format(book_path))
-    paras = [para for chapter in chapters for para in chapter['paragraphs']]
-    embeddings = get_embeddings(paras)
+def read_epub(epub_path, json_path, first_chapter, last_chapter):
     try:
+        chapters = epub_to_html(epub_path, first_chapter, last_chapter)
+        print('Generating embeddings for "{}"\n'.format(epub_path))
+        paras = [para for chapter in chapters for para in chapter['paragraphs']]
+        embeddings = get_embeddings(paras)
         with open(json_path, 'w') as f:
             json.dump({'chapters': chapters, 'embeddings': embeddings.tolist()}, f)
-    except:
-        print('Failed to save embeddings to "{}"'.format(json_path))
-    return chapters, embeddings
+    except FileNotFoundError as file_not_found_error:
+        print(f"Error: {file_not_found_error}. Please check the file paths.")
+    except json.JSONDecodeError as json_error:
+        print(f"Error decoding JSON: {json_error}")
+    except IOError as io_error:
+        print(f"Error during file operations: {io_error}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        # You can also print the exception type to help with debugging: print(type(e))
+    else:
+        return chapters, embeddings
 
 
 def process_file(path, first_chapter=0, last_chapter=math.inf):
