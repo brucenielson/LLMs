@@ -55,13 +55,24 @@ class EBookSearch:
                     # Insert a new paragraph with the remaining words
                     new_paragraph = ' '.join(words[max_words:])
                     chapter['paragraphs'].insert(j + 1, new_paragraph)
+
                 # Merge paragraphs that are too short
-                k = j + 1
-                while (len(chapter['paragraphs'][j].split()) < min_words
-                       and k < len(chapter['paragraphs']) - 1):
-                    chapter['paragraphs'][j] += '\n' + chapter['paragraphs'][k]
-                    chapter['paragraphs'][k] = ''
-                    k += 1
+                while len(chapter['paragraphs'][j].split()) < min_words and j+1 < len(chapter['paragraphs']):
+                    # This paragraph is too short, so merge it with the next one
+                    chapter['paragraphs'][j] += '\n' + chapter['paragraphs'][j+1]
+                    # Delete the next paragraph since we just merged it to the previous one
+                    del chapter['paragraphs'][j+1]
+
+            # After the loop, handle the case where the last paragraph is too short
+            last_index = len(chapter['paragraphs']) - 1
+            last_para_len = len(chapter['paragraphs'][last_index].split())
+            prev_para_len = len(chapter['paragraphs'][last_index - 1].split()) if last_index > 0 else 0
+            if last_para_len < min_words and last_index > 0 and prev_para_len + last_para_len < max_words:
+                # Merge the last paragraph with the previous one
+                chapter['paragraphs'][last_index - 1] += '\n ' + chapter['paragraphs'][last_index]
+                # Remove the last paragraph since we just merged it to the previous one
+                del chapter['paragraphs'][last_index]
+
             # Remove empty paragraphs and whitespace
             chapter['paragraphs'] = [para.strip() for para in chapter['paragraphs'] if len(para.strip()) > 0]
             if len(chapter['title']) == 0:
