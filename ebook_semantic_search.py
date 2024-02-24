@@ -75,25 +75,30 @@ class EBookSearch:
 
     @staticmethod
     def score(query_embedding, embeddings):
+        # Compute the cosine similarity between the query and all paragraphs
         scores = (np.dot(embeddings, query_embedding) /
                   (np.linalg.norm(embeddings, axis=1) * np.linalg.norm(query_embedding)))
         return scores
 
     @staticmethod
     def epub_sections_to_chapter(section):
+        # Convert to HTML and extract paragraphs
         html = BeautifulSoup(section.get_body_content(), 'html.parser')
         p_tag_list = html.find_all('p')
         text_list = [para.get_text().strip() for para in p_tag_list if para.get_text().strip()]
         if len(text_list) == 0:
             return None
+        # Extract and process headings
         heading_list = [heading.get_text().strip() for heading in html.find_all('h1')]
         title = ' '.join(heading_list)
         return {'title': title, 'paragraphs': text_list}
 
     @staticmethod
     def strip_blank_chapters(chapters, first_chapter=0, last_chapter=math.inf, min_paragraph_size=2000):
+        # This takes a list of chapters and removes the ones outside the range [first_chapter, last_chapter]
         last_chapter = min(last_chapter, len(chapters) - 1)
         chapters = chapters[first_chapter:last_chapter + 1]
+        # Filter out chapters with small total paragraph size
         chapters = [chapter for chapter in chapters if sum(len(para) for para
                                                            in chapter['paragraphs']) >= min_paragraph_size]
         return chapters
@@ -109,9 +114,11 @@ class EBookSearch:
         return self.read_json(path)
 
     def search(self, query, embeddings, path, chapters, n=5):
+        # Create embeddings for the query
         query_embedding = self.create_embeddings(query)[0]
         scores = self.score(query_embedding, embeddings)
         results = sorted([i for i in range(len(embeddings))], key=lambda i: scores[i], reverse=True)[:n]
+        # Write out the results
         f = open('result.text', 'a')
         header_msg = 'Results for query "{}" in "{}"'.format(query, path)
         self.print_and_write(header_msg, f)
@@ -134,15 +141,22 @@ class EBookSearch:
         return chapters
 
     def embed_epub(self, epub_file_name, do_strip=True, first_chapter=0, last_chapter=math.inf):
+        # Assert this is an epub file
         assert self.get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
+        # Create a json file with the same name as the epub
         json_file_name = self.switch_ext(epub_file_name, '.json')
+        # Delete any existing json file with the same name
         if exists(json_file_name):
             os.remove(json_file_name)
+        # Create the json file name
         json_file_name = self.switch_ext(epub_file_name, '.json')
+        # Convert the epub to html and extract the paragraphs
         chapters = self.epub_to_chapters(epub_file_name, do_strip, first_chapter, last_chapter)
         print('Generating embeddings for "{}"\n'.format(epub_file_name))
         paragraphs = [paragraph for chapter in chapters for paragraph in chapter['paragraphs']]
+        # Generate the embeddings using the model
         embeddings = self.create_embeddings(paragraphs)
+        # Save the chapter embeddings to a json file
         try:
             print('Writing embeddings for "{}"\n'.format(epub_file_name))
             with open(json_file_name, 'w') as f:
@@ -153,6 +167,7 @@ class EBookSearch:
             print(f'Failed to decode JSON in "{json_file_name}": {json_error}')
         except Exception as e:
             print(f'An unexpected error occurred: {e}')
+        # Return the chapters and the embeddings
         return chapters, embeddings
 
     def preview_epub(self, epub_file_name, do_strip=True):
@@ -163,6 +178,7 @@ class EBookSearch:
 
     def ebook_semantic_search(self, query, file, do_preview=False,
                               do_strip=True, first_chapter=0, last_chapter=math.inf):
+        # First check if we have an embeddings file for this epub which is a json file with the same name as the epub
         if self.get_ext(file) == '.epub':
             if do_preview:
                 self.preview_epub(file, do_strip)
@@ -173,6 +189,7 @@ class EBookSearch:
             file = json_file
 
         assert self.get_ext(file) == '.json', 'Should now be a json file.'
+        # Load the embeddings from the json file
         chapters, embeddings = self.load_json_file(file)
         if embeddings is not None:
             self.search(query, embeddings, file, chapters)
