@@ -44,7 +44,7 @@ class EBookSearch:
     @staticmethod
     def format_paragraphs(chapters, min_words=150, max_words=500):
         # Split paragraphs that are too long and merge paragraphs that are too short
-        for chapter in chapters:
+        for i, chapter in enumerate(chapters):
             for j, paragraph in enumerate(chapter['paragraphs']):
                 words = paragraph.split()
                 if len(words) > max_words:
@@ -232,9 +232,10 @@ def test_ebook_search(do_preview=False):
     # noinspection SpellCheckingInspection
     book_path = \
         r'D:\Documents\Papers\EPub Books\Karl R. Popper - The Logic of Scientific Discovery-Routledge (2002).epub'
+    # book_path = r'D:\Documents\Papers\EPub Books\KJV.epub'
     ebook_search = EBookSearch(book_path, do_preview=do_preview)
     if not do_preview:
-        query = 'Why do we need to corroborate theories at all?'
+        query = 'What makes a good explanation?'
         ebook_search.search(query, top_results=5)
 
 
