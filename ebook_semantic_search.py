@@ -139,12 +139,13 @@ def epub_sections_to_chapter(section):
     return {'title': title, 'paragraphs': text_list}
 
 
-def epub_to_html(epub_file_name, first_chapter=0, last_chapter=math.inf):
+def epub_to_html(epub_file_name, do_strip=True, first_chapter=0, last_chapter=math.inf):
     book = epub.read_epub(epub_file_name)
     item_doc = book.get_items_of_type(ebooklib.ITEM_DOCUMENT)
     book_sections = list(item_doc)
     chapters = [result for section in book_sections if (result := epub_sections_to_chapter(section)) is not None]
-    chapters = strip_blank_chapters(chapters, first_chapter, last_chapter)
+    if do_strip:
+        chapters = strip_blank_chapters(chapters, first_chapter, last_chapter)
     format_paras(chapters)
     return chapters
 
@@ -160,14 +161,24 @@ def strip_blank_chapters(chapters, first_chapter=0, last_chapter=math.inf, min_p
     return chapters
 
 
-def embed_epub(epub_file_name, first_chapter=0, last_chapter=math.inf):
+def embed_epub(epub_file_name, do_strip=True, first_chapter=0, last_chapter=math.inf):
+    # Assert this is an epub file
     assert get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
+    # Create a json file with the same name as the epub
     json_file_name = switch_ext(epub_file_name, '.json')
-    chapters = epub_to_html(epub_file_name, first_chapter, last_chapter)
+    # Delete any existing json file with the same name
+    if exists(json_file_name):
+        os.remove(json_file_name)
+    # Create the json file name
+    json_file_name = switch_ext(epub_file_name, '.json')
+    # Convert the epub to html and extract the paragraphs
+    chapters = epub_to_html(epub_file_name, do_strip, first_chapter, last_chapter)
     print('Generating embeddings for "{}"\n'
           .format(epub_file_name))
-    paras = [para for chapter in chapters for para in chapter['paragraphs']]
-    embeddings = get_embeddings(paras)
+    paragraphs = [paragraph for chapter in chapters for paragraph in chapter['paragraphs']]
+    # Generate the embeddings using the model
+    embeddings = get_embeddings(paragraphs)
+    # Save the chapter embeddings to a json file
     try:
         with open(json_file_name, 'w') as f:
             json.dump({'chapters': chapters, 'embeddings': embeddings.tolist()}, f)
@@ -177,6 +188,7 @@ def embed_epub(epub_file_name, first_chapter=0, last_chapter=math.inf):
         print(f'Failed to decode JSON in "{json_file_name}": {json_error}')
     except Exception as e:
         print(f'An unexpected error occurred: {e}')
+    # Return the chapters and the embeddings
     return chapters, embeddings
 
 
@@ -187,20 +199,6 @@ def preview_epub(epub_file_name, do_strip=True):
     return chapters
 
 
-def create_embeddings_json(epub_file_name):
-    # Assert this is an epub file
-    assert get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
-
-    json_file_name = switch_ext(epub_file_name, '.json')
-
-    if exists(json_file_name):
-        # Delete it if it exists
-        os.remove(json_file_name)
-
-    chapters, embeddings = embed_epub(epub_file_name)
-    return embeddings
-
-
 def get_ext(full_file_name):
     return full_file_name[full_file_name.rfind('.'):]
 
@@ -209,7 +207,7 @@ def switch_ext(full_file_name, new_ext):
     return full_file_name[:full_file_name.rfind('.')] + new_ext
 
 
-def ebook_semantic_search(query, file, do_preview=False, do_strip=True):
+def ebook_semantic_search(query, file, do_preview=False, do_strip=True, first_chapter=0, last_chapter=math.inf):
     # First check if we have an embeddings file for this epub which is a json file with the same name as the epub
     if get_ext(file) == '.epub':
         if do_preview:
@@ -217,7 +215,7 @@ def ebook_semantic_search(query, file, do_preview=False, do_strip=True):
             return
         json_file = switch_ext(file, '.json')
         if not exists(json_file):
-            create_embeddings_json(file)
+            embed_epub(file, do_strip, first_chapter, last_chapter)
         file = json_file
 
     assert get_ext(file) == '.json', 'Should now be a json file.'
