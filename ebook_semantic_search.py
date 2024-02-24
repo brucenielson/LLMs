@@ -42,23 +42,29 @@ class EBookSearch:
                 self.load_embeddings_file()
 
     @staticmethod
-    def format_paragraphs(chapters, min_words_per_para=150, max_words_per_para=500):
-        for i in range(len(chapters)):
-            for j in range(len(chapters[i]['paragraphs'])):
-                split_para = chapters[i]['paragraphs'][j].split()
-                if len(split_para) > max_words_per_para:
-                    chapters[i]['paragraphs'].insert(j + 1, ' '.join(split_para[max_words_per_para:]))
-                    chapters[i]['paragraphs'][j] = ' '.join(split_para[:max_words_per_para])
+    def format_paragraphs(chapters, min_words=150, max_words=500):
+        # Split paragraphs that are too long and merge paragraphs that are too short
+        for i, chapter in enumerate(chapters):
+            for j, paragraph in enumerate(chapter['paragraphs']):
+                words = paragraph.split()
+                if len(words) > max_words:
+                    # Split the paragraph into two
+                    # Insert paragraph with max words in place of the old paragraph
+                    maxed_paragraph = ' '.join(words[:max_words])
+                    chapter['paragraphs'].insert(j, maxed_paragraph)
+                    # Insert a new paragraph with teh remaining works
+                    new_paragraph = ' '.join(words[max_words:])
+                    chapter['paragraphs'].insert(j + 1, ' '.join(new_paragraph))
                 k = j
-                while (len(chapters[i]['paragraphs'][j].split()) < min_words_per_para
-                       and k < len(chapters[i]['paragraphs']) - 1):
-                    chapters[i]['paragraphs'][j] += '\n' + chapters[i]['paragraphs'][k + 1]
-                    chapters[i]['paragraphs'][k + 1] = ''
+                while (len(chapter['paragraphs'][j].split()) < min_words
+                       and k < len(chapter['paragraphs']) - 1):
+                    chapter['paragraphs'][j] += '\n' + chapters[i]['paragraphs'][k + 1]
+                    chapter['paragraphs'][k + 1] = ''
                     k += 1
 
-            chapters[i]['paragraphs'] = [para.strip() for para in chapters[i]['paragraphs'] if len(para.strip()) > 0]
-            if len(chapters[i]['title']) == 0:
-                chapters[i]['title'] = '(Unnamed) Chapter {no}'.format(no=i + 1)
+            chapter['paragraphs'] = [para.strip() for para in chapters[i]['paragraphs'] if len(para.strip()) > 0]
+            if len(chapter['title']) == 0:
+                chapter['title'] = '(Unnamed) Chapter {no}'.format(no=i + 1)
 
     @staticmethod
     def print_previews(chapters):
