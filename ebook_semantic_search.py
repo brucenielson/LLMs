@@ -51,18 +51,18 @@ class EBookSearch:
                     # Split the paragraph into two
                     # Insert paragraph with max words in place of the old paragraph
                     maxed_paragraph = ' '.join(words[:max_words])
-                    chapter['paragraphs'].insert(j, maxed_paragraph)
-                    # Insert a new paragraph with teh remaining works
+                    chapter['paragraphs'][j] = maxed_paragraph
+                    # Insert a new paragraph with the remaining words
                     new_paragraph = ' '.join(words[max_words:])
-                    chapter['paragraphs'].insert(j + 1, ' '.join(new_paragraph))
+                    chapter['paragraphs'].insert(j + 1, new_paragraph)
                 k = j
                 while (len(chapter['paragraphs'][j].split()) < min_words
                        and k < len(chapter['paragraphs']) - 1):
-                    chapter['paragraphs'][j] += '\n' + chapters[i]['paragraphs'][k + 1]
+                    chapter['paragraphs'][j] += '\n' + chapter['paragraphs'][k + 1]
                     chapter['paragraphs'][k + 1] = ''
                     k += 1
             # Remove empty paragraphs and whitespace
-            chapter['paragraphs'] = [para.strip() for para in chapters[i]['paragraphs'] if len(para.strip()) > 0]
+            chapter['paragraphs'] = [para.strip() for para in chapter['paragraphs'] if len(para.strip()) > 0]
             if len(chapter['title']) == 0:
                 chapter['title'] = '(Unnamed) Chapter {no}'.format(no=i + 1)
 
