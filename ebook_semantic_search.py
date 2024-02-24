@@ -44,7 +44,7 @@ class EBookSearch:
     @staticmethod
     def format_paragraphs(chapters, min_words=150, max_words=500):
         # Split paragraphs that are too long and merge paragraphs that are too short
-        for i, chapter in enumerate(chapters):
+        for chapter in chapters:
             for j, paragraph in enumerate(chapter['paragraphs']):
                 words = paragraph.split()
                 if len(words) > max_words:
