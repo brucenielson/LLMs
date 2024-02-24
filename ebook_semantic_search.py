@@ -61,7 +61,7 @@ class EBookSearch:
                     chapter['paragraphs'][j] += '\n' + chapters[i]['paragraphs'][k + 1]
                     chapter['paragraphs'][k + 1] = ''
                     k += 1
-
+            # Remove empty paragraphs and whitespace
             chapter['paragraphs'] = [para.strip() for para in chapters[i]['paragraphs'] if len(para.strip()) > 0]
             if len(chapter['title']) == 0:
                 chapter['title'] = '(Unnamed) Chapter {no}'.format(no=i + 1)
