@@ -26,13 +26,13 @@ class EBookSearch:
             self.ebook_preview(self._do_strip)
         else:
             # Load the embeddings
-            if self.get_ext(full_file_name) == '.epub':
+            if self.get_ext(self._file_name) == '.epub':
                 # Create a json file with the same name as the epub
                 json_file_name = self.switch_ext(self._file_name, '.json')
                 # Check if the json file exists
                 if not exists(json_file_name):
                     # No json file exists, so create embeddings to put into a json file
-                    self.embed_epub(full_file_name, self._do_strip, self._first_chapter, self._last_chapter)
+                    self.embed_epub(self._file_name, self._do_strip, self._first_chapter, self._last_chapter)
                 else:
                     self._file_name = json_file_name
             # A json file should now exist with our embeddings
