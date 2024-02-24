@@ -44,11 +44,13 @@ class EBookSearch:
             preview = '{}: {} | wc: {} | paras: {}\n"{}..."\n'.format(i, title, wc, paras, initial)
             print(preview)
 
-    def create_embeddings(self, texts):
-        if type(texts) is str:
-            texts = [texts]
-        texts = [text.replace("\n", " ") for text in texts]
-        return self.model.encode(texts)
+    @staticmethod
+    def get_ext(full_file_name):
+        return full_file_name[full_file_name.rfind('.'):]
+
+    @staticmethod
+    def switch_ext(full_file_name, new_ext):
+        return full_file_name[:full_file_name.rfind('.')] + new_ext
 
     @staticmethod
     def read_json(json_path):
@@ -56,10 +58,6 @@ class EBookSearch:
         with open(json_path, 'r') as f:
             values = json.load(f)
         return values['chapters'], np.array(values['embeddings'])
-
-    def load_json_file(self, path):
-        assert self.get_ext(path) == '.json', 'Invalid file format. Please upload a json file.'
-        return self.read_json(path)
 
     @staticmethod
     def print_and_write(text, f):
@@ -81,6 +79,35 @@ class EBookSearch:
                   (np.linalg.norm(embeddings, axis=1) * np.linalg.norm(query_embedding)))
         return scores
 
+    @staticmethod
+    def epub_sections_to_chapter(section):
+        html = BeautifulSoup(section.get_body_content(), 'html.parser')
+        p_tag_list = html.find_all('p')
+        text_list = [para.get_text().strip() for para in p_tag_list if para.get_text().strip()]
+        if len(text_list) == 0:
+            return None
+        heading_list = [heading.get_text().strip() for heading in html.find_all('h1')]
+        title = ' '.join(heading_list)
+        return {'title': title, 'paragraphs': text_list}
+
+    @staticmethod
+    def strip_blank_chapters(chapters, first_chapter=0, last_chapter=math.inf, min_paragraph_size=2000):
+        last_chapter = min(last_chapter, len(chapters) - 1)
+        chapters = chapters[first_chapter:last_chapter + 1]
+        chapters = [chapter for chapter in chapters if sum(len(para) for para
+                                                           in chapter['paragraphs']) >= min_paragraph_size]
+        return chapters
+
+    def create_embeddings(self, texts):
+        if type(texts) is str:
+            texts = [texts]
+        texts = [text.replace("\n", " ") for text in texts]
+        return self.model.encode(texts)
+
+    def load_json_file(self, path):
+        assert self.get_ext(path) == '.json', 'Invalid file format. Please upload a json file.'
+        return self.read_json(path)
+
     def search(self, query, embeddings, path, chapters, n=5):
         query_embedding = self.create_embeddings(query)[0]
         scores = self.score(query_embedding, embeddings)
@@ -95,17 +122,6 @@ class EBookSearch:
             self.print_and_write(result_msg, f)
         self.print_and_write('\n', f)
 
-    @staticmethod
-    def epub_sections_to_chapter(section):
-        html = BeautifulSoup(section.get_body_content(), 'html.parser')
-        p_tag_list = html.find_all('p')
-        text_list = [para.get_text().strip() for para in p_tag_list if para.get_text().strip()]
-        if len(text_list) == 0:
-            return None
-        heading_list = [heading.get_text().strip() for heading in html.find_all('h1')]
-        title = ' '.join(heading_list)
-        return {'title': title, 'paragraphs': text_list}
-
     def epub_to_chapters(self, epub_file_name, do_strip=True, first_chapter=0, last_chapter=math.inf):
         book = epub.read_epub(epub_file_name)
         item_doc = book.get_items_of_type(ebooklib.ITEM_DOCUMENT)
@@ -115,14 +131,6 @@ class EBookSearch:
         if do_strip:
             chapters = self.strip_blank_chapters(chapters, first_chapter, last_chapter)
         self.format_paragraphs(chapters)
-        return chapters
-
-    @staticmethod
-    def strip_blank_chapters(chapters, first_chapter=0, last_chapter=math.inf, min_paragraph_size=2000):
-        last_chapter = min(last_chapter, len(chapters) - 1)
-        chapters = chapters[first_chapter:last_chapter + 1]
-        chapters = [chapter for chapter in chapters if sum(len(para) for para
-                                                           in chapter['paragraphs']) >= min_paragraph_size]
         return chapters
 
     def embed_epub(self, epub_file_name, do_strip=True, first_chapter=0, last_chapter=math.inf):
@@ -152,14 +160,6 @@ class EBookSearch:
         chapters = self.epub_to_chapters(epub_file_name, do_strip)
         self.print_previews(chapters)
         return chapters
-
-    @staticmethod
-    def get_ext(full_file_name):
-        return full_file_name[full_file_name.rfind('.'):]
-
-    @staticmethod
-    def switch_ext(full_file_name, new_ext):
-        return full_file_name[:full_file_name.rfind('.')] + new_ext
 
     def ebook_semantic_search(self, query, file, do_preview=False,
                               do_strip=True, first_chapter=0, last_chapter=math.inf):
