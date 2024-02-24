@@ -80,7 +80,7 @@ def test_llama_cpp():
     output = llm(
           "Q: Name the planets in the solar system? A: ",  # Prompt
           max_tokens=32,  # Generate up to 32 tokens, set to None to generate up to the end of the context window
-          stop=["Q:", "\n"],  # Stop generating just before the model would generate a new query
+          stop=["Q:", "\n"],  # Stop generating just before the _model would generate a new query
           echo=True  # Echo the prompt back in the output
     )
     print(output)
@@ -126,16 +126,16 @@ def test_llama_llm():
 
 def test_download_transformer():
     # try:
-    #     pipe = pipeline("text-generation", model="TheBloke/Chronomaid-Storytelling-13B-GPTQ")
+    #     pipe = pipeline("text-generation", _model="TheBloke/Chronomaid-Storytelling-13B-GPTQ")
     # except Exception as e:
     #     print("Model not found!")
     #
     # print("Model down loaded!")
     # result = pipe("Q: Name the planets in the solar system? A: ")
     # print(result)
-    # model = AutoModel.from_pretrained("TheBloke/Chronomaid-Storytelling-13B-GGUF")
-    # print(model)
-    # pipe = pipeline("text-generation", model="allenai/OLMo-7B")
+    # _model = AutoModel.from_pretrained("TheBloke/Chronomaid-Storytelling-13B-GGUF")
+    # print(_model)
+    # pipe = pipeline("text-generation", _model="allenai/OLMo-7B")
     # generated_text = pipe("Once upon a time, there was a brave knight who")
     # print(generated_text)
     pass
@@ -144,7 +144,7 @@ def test_download_transformer():
 def test_load_in_bit():
     model_id = "facebook/opt-125m"
     # For LLM.int8()
-    # model = AutoModelForCausalLM.from_pretrained(model_id, load_in_8bit=True)
+    # _model = AutoModelForCausalLM.from_pretrained(model_id, load_in_8bit=True)
 
     # For QLoRA
     model = AutoModelForCausalLM.from_pretrained(model_id, load_in_4bit=True)
@@ -153,7 +153,7 @@ def test_load_in_bit():
 
 def print_trainable_parameters(model):
     """
-    Prints the number of trainable parameters in the model.
+    Prints the number of trainable parameters in the _model.
     """
     trainable_params = 0
     all_param = 0
@@ -208,10 +208,10 @@ def test_peft():
     # Create PeftModel which inserts LoRA adapters using the above config
     model = get_peft_model(model, lora_config)
 
-    # Train the model using HF Trainer / HF Accelerate/ cusom loop
+    # Train the _model using HF Trainer / HF Accelerate/ cusom loop
 
     # Save the adapter weights
-    # model.save_pretrained("my_awesome_adapter")
+    # _model.save_pretrained("my_awesome_adapter")
 
 
 def test_peft2():
@@ -231,7 +231,7 @@ def test_peft2():
         print(f"An error occurred: {e}")
 
     login(secret_text)
-    # Load the 7b llama model
+    # Load the 7b llama _model
     model_id = "meta-llama/Llama-2-7b-hf"
 
     quantization_config = BitsAndBytesConfig(
@@ -245,7 +245,7 @@ def test_peft2():
     # Set it to a new token to correctly attend to EOS tokens.
     tokenizer.add_special_tokens({'pad_token': '<PAD>'})
 
-    # Load model
+    # Load _model
     model = AutoModelForCausalLM.from_pretrained(model_id, quantization_config=quantization_config)
 
 
