@@ -13,6 +13,7 @@ import os
 
 min_words_per_para = 150
 max_words_per_para = 500
+# noinspection SpellCheckingInspection
 model = SentenceTransformer('sentence-transformers/multi-qa-mpnet-base-dot-v1')
 
 
@@ -45,7 +46,7 @@ def print_previews(chapters):
         print(preview)
 
 
-def get_embeddings(texts):
+def create_embeddings(texts):
     if type(texts) is str:
         texts = [texts]
     texts = [text.replace("\n", " ") for text in texts]
@@ -57,27 +58,6 @@ def read_json(json_path):
     with open(json_path, 'r') as f:
         values = json.load(f)
     return values['chapters'], np.array(values['embeddings'])
-
-
-def read_epub(epub_path, json_path, first_chapter, last_chapter):
-    try:
-        chapters = epub_to_html(epub_path, first_chapter, last_chapter)
-        print('Generating embeddings for "{}"\n'.format(epub_path))
-        paras = [para for chapter in chapters for para in chapter['paragraphs']]
-        embeddings = get_embeddings(paras)
-        with open(json_path, 'w') as f:
-            json.dump({'chapters': chapters, 'embeddings': embeddings.tolist()}, f)
-    except FileNotFoundError as file_not_found_error:
-        print(f"Error: {file_not_found_error}. Please check the file paths.")
-    except json.JSONDecodeError as json_error:
-        print(f"Error decoding JSON: {json_error}")
-    except IOError as io_error:
-        print(f"Error during file operations: {io_error}")
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-        # You can also print the exception type to help with debugging: print(type(e))
-    else:
-        return chapters, embeddings
 
 
 def load_json_file(path):
@@ -99,12 +79,19 @@ def index_to_para_chapter_index(index, chapters):
     return None
 
 
-def search(query, embeddings, path, chapters, n=3):
-    query_embedding = get_embeddings(query)[0]
+def score(query_embedding, embeddings):
+    # Compute the cosine similarity between the query and all paragraphs
     scores = (np.dot(embeddings, query_embedding) /
               (np.linalg.norm(embeddings, axis=1) * np.linalg.norm(query_embedding)))
-    results = sorted([i for i in range(len(embeddings))], key=lambda i: scores[i], reverse=True)[:n]
+    return scores
 
+
+def search(query, embeddings, path, chapters, n=5):
+    # Create embeddings for the query
+    query_embedding = create_embeddings(query)[0]
+    scores = score(query_embedding, embeddings)
+    results = sorted([i for i in range(len(embeddings))], key=lambda i: scores[i], reverse=True)[:n]
+    # Write out the results
     f = open('result.text', 'a')
     header_msg = 'Results for query "{}" in "{}"'.format(query, path)
     print_and_write(header_msg, f)
@@ -129,7 +116,7 @@ def epub_sections_to_chapter(section):
     return {'title': title, 'paragraphs': text_list}
 
 
-def epub_to_html(epub_file_name, do_strip=True, first_chapter=0, last_chapter=math.inf):
+def epub_to_chapters(epub_file_name, do_strip=True, first_chapter=0, last_chapter=math.inf):
     book = epub.read_epub(epub_file_name)
     item_doc = book.get_items_of_type(ebooklib.ITEM_DOCUMENT)
     book_sections = list(item_doc)
@@ -162,11 +149,11 @@ def embed_epub(epub_file_name, do_strip=True, first_chapter=0, last_chapter=math
     # Create the json file name
     json_file_name = switch_ext(epub_file_name, '.json')
     # Convert the epub to html and extract the paragraphs
-    chapters = epub_to_html(epub_file_name, do_strip, first_chapter, last_chapter)
+    chapters = epub_to_chapters(epub_file_name, do_strip, first_chapter, last_chapter)
     print('Generating embeddings for "{}"\n'.format(epub_file_name))
     paragraphs = [paragraph for chapter in chapters for paragraph in chapter['paragraphs']]
     # Generate the embeddings using the model
-    embeddings = get_embeddings(paragraphs)
+    embeddings = create_embeddings(paragraphs)
     # Save the chapter embeddings to a json file
     try:
         print('Writing embeddings for "{}"\n'.format(epub_file_name))
@@ -184,7 +171,7 @@ def embed_epub(epub_file_name, do_strip=True, first_chapter=0, last_chapter=math
 
 def preview_epub(epub_file_name, do_strip=True):
     assert get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
-    chapters = epub_to_html(epub_file_name, do_strip)
+    chapters = epub_to_chapters(epub_file_name, do_strip)
     print_previews(chapters)
     return chapters
 
@@ -216,6 +203,7 @@ def ebook_semantic_search(query, file, do_preview=False, do_strip=True, first_ch
 
 
 if __name__ == "__main__":
+    # noinspection SpellCheckingInspection
     book_path = \
         r'D:\Documents\Papers\EPub Books\Karl R. Popper - The Logic of Scientific Discovery-Routledge (2002).epub'
     ebook_semantic_search('Why do we need to corroborate theories at all?', book_path, do_preview=False)
