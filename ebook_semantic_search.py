@@ -35,8 +35,9 @@ class EBookSearch:
                     self.embed_epub(full_file_name, self._do_strip, self._first_chapter, self._last_chapter)
                 else:
                     self._file_name = json_file_name
+            # A json file should now exist with our embeddings
             assert self.get_ext(self._file_name) == '.json', 'Should now be a json file.'
-            # Do we now have embeddings and chapters?
+            # Do we now have embeddings and chapters? If not, load them
             if self._chapters is None or self._embeddings is None:
                 self.load_embeddings_file()
 
@@ -207,16 +208,6 @@ class EBookSearch:
         assert self.get_ext(self._file_name) == '.json', 'Should now be a json file.'
         # Load the _embeddings from the json file
         self._chapters, self._embeddings = self.load_json_file(self._file_name)
-
-    def load_embeddings(self, do_strip=True, first_chapter=0, last_chapter=math.inf):
-        file = self._file_name
-        # First check if we have an _embeddings file for this epub which is a json file with the same name as the epub
-        if self.get_ext(file) == '.epub':
-            json_file = self.switch_ext(file, '.json')
-            if not exists(json_file):
-                self.embed_epub(file, do_strip, first_chapter, last_chapter)
-            self._file_name = json_file
-        self.load_embeddings_file()
 
 
 def test_ebook_search(do_preview=False):
