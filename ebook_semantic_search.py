@@ -80,19 +80,9 @@ def read_epub(epub_path, json_path, first_chapter, last_chapter):
         return chapters, embeddings
 
 
-def process_file(path, first_chapter=0, last_chapter=math.inf):
-    values = None
-    if path[-4:] == 'json':
-        values = read_json(path)
-    elif path[-4:] == 'epub':
-        json_path = 'embeddings-{}-{}-{}.json'.format(first_chapter, last_chapter, path)
-        if exists(json_path):
-            values = read_json(json_path)
-        else:
-            values = read_epub(path, json_path, first_chapter, last_chapter)
-    else:
-        print('Invalid file format. Either upload an epub or a json of book embeddings.')
-    return values
+def load_json_file(path):
+    assert get_ext(path) == '.json', 'Invalid file format. Please upload a json file.'
+    return read_json(path)
 
 
 def print_and_write(text, f):
@@ -173,13 +163,13 @@ def embed_epub(epub_file_name, do_strip=True, first_chapter=0, last_chapter=math
     json_file_name = switch_ext(epub_file_name, '.json')
     # Convert the epub to html and extract the paragraphs
     chapters = epub_to_html(epub_file_name, do_strip, first_chapter, last_chapter)
-    print('Generating embeddings for "{}"\n'
-          .format(epub_file_name))
+    print('Generating embeddings for "{}"\n'.format(epub_file_name))
     paragraphs = [paragraph for chapter in chapters for paragraph in chapter['paragraphs']]
     # Generate the embeddings using the model
     embeddings = get_embeddings(paragraphs)
     # Save the chapter embeddings to a json file
     try:
+        print('Writing embeddings for "{}"\n'.format(epub_file_name))
         with open(json_file_name, 'w') as f:
             json.dump({'chapters': chapters, 'embeddings': embeddings.tolist()}, f)
     except IOError as io_error:
@@ -220,7 +210,7 @@ def ebook_semantic_search(query, file, do_preview=False, do_strip=True, first_ch
 
     assert get_ext(file) == '.json', 'Should now be a json file.'
     # Load the embeddings from the json file
-    chapters, embeddings = process_file(file)
+    chapters, embeddings = load_json_file(file)
     if embeddings is not None:
         search(query, embeddings, file, chapters)
 
