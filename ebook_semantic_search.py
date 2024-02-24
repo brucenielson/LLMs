@@ -55,11 +55,12 @@ class EBookSearch:
                     # Insert a new paragraph with the remaining words
                     new_paragraph = ' '.join(words[max_words:])
                     chapter['paragraphs'].insert(j + 1, new_paragraph)
-                k = j
+                # Merge paragraphs that are too short
+                k = j + 1
                 while (len(chapter['paragraphs'][j].split()) < min_words
                        and k < len(chapter['paragraphs']) - 1):
-                    chapter['paragraphs'][j] += '\n' + chapter['paragraphs'][k + 1]
-                    chapter['paragraphs'][k + 1] = ''
+                    chapter['paragraphs'][j] += '\n' + chapter['paragraphs'][k]
+                    chapter['paragraphs'][k] = ''
                     k += 1
             # Remove empty paragraphs and whitespace
             chapter['paragraphs'] = [para.strip() for para in chapter['paragraphs'] if len(para.strip()) > 0]
