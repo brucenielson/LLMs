@@ -178,10 +178,14 @@ class EBookSearch:
             self.search(query, embeddings, file, chapters)
 
 
-if __name__ == "__main__":
+def test_ebook_search():
     ebook_search = EBookSearch()
     # noinspection SpellCheckingInspection
     book_path = \
         r'D:\Documents\Papers\EPub Books\Karl R. Popper - The Logic of Scientific Discovery-Routledge (2002).epub'
-    question = 'Why do we need to corroborate theories at all?'
-    ebook_search.ebook_semantic_search(question, book_path, do_preview=False)
+    query = 'Why do we need to corroborate theories at all?'
+    ebook_search.ebook_semantic_search(query, book_path, do_preview=False)
+
+
+if __name__ == "__main__":
+    test_ebook_search()
