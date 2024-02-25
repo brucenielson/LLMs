@@ -161,7 +161,8 @@ class SemanticSearch:
         assert self.get_ext(self._file_name) == '.json', 'Should now be a json file.'
         # Do we now have embeddings and chapters? If not, load them
         if self._chapters is None or self._embeddings is None:
-            self.load_embeddings_file()
+            # Load the embeddings from the json file
+            self._chapters, self._embeddings = self.read_json(self._file_name)
 
     def search(self, query, top_results=5):
         results_msgs = []
@@ -193,11 +194,6 @@ class SemanticSearch:
         assert self.get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
         self.__epub_to_chapters(epub_file_name)
         self.__print_previews()
-
-    def load_embeddings_file(self):
-        assert self.get_ext(self._file_name) == '.json', 'Should now be a json file.'
-        # Load the _embeddings from the json file
-        self._chapters, self._embeddings = self.read_json(self._file_name)
 
     def __embed_epub(self, epub_file_name):
         # Assert this is an epub file
