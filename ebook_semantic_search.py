@@ -91,15 +91,6 @@ class SemanticSearch:
         title = ' '.join(heading_list)
         return {'title': title, 'paragraphs': text_list}
 
-    def index_into_chapters(self, index):
-        flattened_paragraphs = [{'text': paragraph, 'title': chapter['title'], 'para_no': para_no}
-                                for chapter in self._chapters
-                                for para_no, paragraph in enumerate(chapter['paragraphs'])]
-
-        return (flattened_paragraphs[index]['text'], flattened_paragraphs[index]['title'],
-                flattened_paragraphs[index]['para_no']
-                if 0 <= index < len(flattened_paragraphs) else None)
-
     @property
     def do_strip(self):
         return self._do_strip
@@ -163,7 +154,7 @@ class SemanticSearch:
             # Check if the json file exists
             if not exists(json_file_name):
                 # No json file exists, so create embeddings to put into a json file
-                self.embed_epub(self._file_name)
+                self.__embed_epub(self._file_name)
             else:
                 self._file_name = json_file_name
         # A json file should now exist with our embeddings
@@ -172,7 +163,98 @@ class SemanticSearch:
         if self._chapters is None or self._embeddings is None:
             self.load_embeddings_file()
 
-    def format_paragraphs(self):
+    def search(self, query, top_results=5):
+        results_msgs = []
+        # Create _embeddings for the query
+        query_embedding = self.__create_embeddings(query)[0]
+        # Calculate the cosine similarity between the query and all _embeddings
+        scores = self.fast_cosine_similarity(query_embedding, self._embeddings)
+        # Grab the top results
+        results = np.argsort(scores)[::-1][:top_results].tolist()
+        # Write out the results using the with statement to ensure proper file closure
+        with open(self._results_file, 'a') as f:
+            file_msg = 'File: "{}"'.format(self._file_name)
+            self.print_and_write(file_msg, f)
+            query_msg = 'Query: "{}"'.format(query)
+            self.print_and_write(query_msg, f)
+            for i in results:
+                # Convert the index (into a list of flattened paragraphs which is what embeddings is)
+                # into a chapter and paragraph number
+                paragraph, title, paragraph_num = self.__index_into_chapters(i)
+                result_msg = ('\nChapter: "{}", Passage number: {}, Score: {:.2f}\n"{}"'
+                              .format(title, paragraph_num, scores[i], paragraph))
+                results_msgs.append(result_msg)
+                self.print_and_write(result_msg, f)
+            self.print_and_write('\n', f)
+        return results_msgs, results
+
+    def preview_epub(self):
+        epub_file_name = self._file_name
+        assert self.get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
+        self.__epub_to_chapters(epub_file_name)
+        self.__print_previews()
+
+    def load_embeddings_file(self):
+        assert self.get_ext(self._file_name) == '.json', 'Should now be a json file.'
+        # Load the _embeddings from the json file
+        self._chapters, self._embeddings = self.read_json(self._file_name)
+
+    def __embed_epub(self, epub_file_name):
+        # Assert this is an epub file
+        assert self.get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
+        # Create a json file with the same name as the epub
+        json_file_name = self.switch_ext(epub_file_name, '.json')
+        # Delete any existing json file with the same name
+        if exists(json_file_name):
+            os.remove(json_file_name)
+        # Create the json file name
+        json_file_name = self.switch_ext(epub_file_name, '.json')
+        # Convert the epub to html and extract the paragraphs
+        self.__epub_to_chapters(epub_file_name)
+        print('Generating embeddings for "{}"\n'.format(epub_file_name))
+        paragraphs = [paragraph for chapter in self._chapters for paragraph in chapter['paragraphs']]
+        # Generate the _embeddings using the _model
+        self._embeddings = self.__create_embeddings(paragraphs)
+        # Save the chapter _embeddings to a json file
+        try:
+            print('Writing embeddings for "{}"\n'.format(epub_file_name))
+            with open(json_file_name, 'w') as f:
+                json.dump({'_chapters': self._chapters, '_embeddings': self._embeddings.tolist()}, f)
+            self._file_name = json_file_name
+        except IOError as io_error:
+            print(f'Failed to save embeddings to "{json_file_name}": {io_error}')
+        except json.JSONDecodeError as json_error:
+            print(f'Failed to decode JSON in "{json_file_name}": {json_error}')
+        except Exception as e:
+            print(f'An unexpected error occurred: {e}')
+
+    def __index_into_chapters(self, index):
+        flattened_paragraphs = [{'text': paragraph, 'title': chapter['title'], 'para_no': para_no}
+                                for chapter in self._chapters
+                                for para_no, paragraph in enumerate(chapter['paragraphs'])]
+
+        return (flattened_paragraphs[index]['text'], flattened_paragraphs[index]['title'],
+                flattened_paragraphs[index]['para_no']
+                if 0 <= index < len(flattened_paragraphs) else None)
+
+    def __epub_to_chapters(self, epub_file_name):
+        book = epub.read_epub(epub_file_name)
+        item_doc = book.get_items_of_type(ebooklib.ITEM_DOCUMENT)
+        book_sections = list(item_doc)
+        chapters = [result for section in book_sections
+                    if (result := self.epub_sections_to_chapter(section)) is not None]
+        self._chapters = chapters
+        if self._do_strip:
+            self.__strip_blank_chapters()
+        self.__format_paragraphs()
+
+    def __create_embeddings(self, texts):
+        if type(texts) is str:
+            texts = [texts]
+        texts = [text.replace("\n", " ") for text in texts]
+        return self._model.encode(texts)
+
+    def __format_paragraphs(self):
         # Split paragraphs that are too long and merge paragraphs that are too short
         for i, chapter in enumerate(self._chapters):
             for j, paragraph in enumerate(chapter['paragraphs']):
@@ -208,7 +290,7 @@ class SemanticSearch:
             if len(chapter['title']) == 0:
                 chapter['title'] = '(Unnamed) Chapter {no}'.format(no=i + 1)
 
-    def print_previews(self):
+    def __print_previews(self):
         for (i, chapter) in enumerate(self._chapters):
             title = chapter['title']
             wc = len(' '.join(chapter['paragraphs']).split(' '))
@@ -217,7 +299,7 @@ class SemanticSearch:
             preview = '{}: {} | wc: {} | paras: {}\n"{}..."\n'.format(i, title, wc, paras, initial)
             print(preview)
 
-    def strip_blank_chapters(self):
+    def __strip_blank_chapters(self):
         # This takes a list of _chapters and removes the ones outside the range [first_chapter, last_chapter]
         # or if the chapter is too small (likely a title page or something)
         last_chapter = min(self._last_chapter, len(self._chapters) - 1)
@@ -226,92 +308,6 @@ class SemanticSearch:
         chapters = [chapter for chapter in chapters if sum(len(paragraph) for paragraph
                                                            in chapter['paragraphs']) >= self._min_chapter_size]
         self._chapters = chapters
-
-    def create_embeddings(self, texts):
-        if type(texts) is str:
-            texts = [texts]
-        texts = [text.replace("\n", " ") for text in texts]
-        return self._model.encode(texts)
-
-    def load_json_file(self, path):
-        assert self.get_ext(path) == '.json', 'Invalid file format. Please upload a json file.'
-        return self.read_json(path)
-
-    def search(self, query, top_results=5):
-        results_msgs = []
-        # Create _embeddings for the query
-        query_embedding = self.create_embeddings(query)[0]
-        # Calculate the cosine similarity between the query and all _embeddings
-        scores = self.fast_cosine_similarity(query_embedding, self._embeddings)
-        # Grab the top results
-        results = np.argsort(scores)[::-1][:top_results].tolist()
-        # Write out the results using the with statement to ensure proper file closure
-        with open(self._results_file, 'a') as f:
-            file_msg = 'File: "{}"'.format(self._file_name)
-            self.print_and_write(file_msg, f)
-            query_msg = 'Query: "{}"'.format(query)
-            self.print_and_write(query_msg, f)
-            for i in results:
-                # Convert the index (into a list of flattened paragraphs which is what embeddings is)
-                # into a chapter and paragraph number
-                paragraph, title, paragraph_num = self.index_into_chapters(i)
-                result_msg = ('\nChapter: "{}", Passage number: {}, Score: {:.2f}\n"{}"'
-                              .format(title, paragraph_num, scores[i], paragraph))
-                results_msgs.append(result_msg)
-                self.print_and_write(result_msg, f)
-            self.print_and_write('\n', f)
-        return results_msgs, results
-
-    def epub_to_chapters(self, epub_file_name):
-        book = epub.read_epub(epub_file_name)
-        item_doc = book.get_items_of_type(ebooklib.ITEM_DOCUMENT)
-        book_sections = list(item_doc)
-        chapters = [result for section in book_sections
-                    if (result := self.epub_sections_to_chapter(section)) is not None]
-        self._chapters = chapters
-        if self._do_strip:
-            self.strip_blank_chapters()
-        self.format_paragraphs()
-
-    def embed_epub(self, epub_file_name):
-        # Assert this is an epub file
-        assert self.get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
-        # Create a json file with the same name as the epub
-        json_file_name = self.switch_ext(epub_file_name, '.json')
-        # Delete any existing json file with the same name
-        if exists(json_file_name):
-            os.remove(json_file_name)
-        # Create the json file name
-        json_file_name = self.switch_ext(epub_file_name, '.json')
-        # Convert the epub to html and extract the paragraphs
-        self.epub_to_chapters(epub_file_name)
-        print('Generating _embeddings for "{}"\n'.format(epub_file_name))
-        paragraphs = [paragraph for chapter in self._chapters for paragraph in chapter['paragraphs']]
-        # Generate the _embeddings using the _model
-        self._embeddings = self.create_embeddings(paragraphs)
-        # Save the chapter _embeddings to a json file
-        try:
-            print('Writing _embeddings for "{}"\n'.format(epub_file_name))
-            with open(json_file_name, 'w') as f:
-                json.dump({'_chapters': self._chapters, '_embeddings': self._embeddings.tolist()}, f)
-            self._file_name = json_file_name
-        except IOError as io_error:
-            print(f'Failed to save _embeddings to "{json_file_name}": {io_error}')
-        except json.JSONDecodeError as json_error:
-            print(f'Failed to decode JSON in "{json_file_name}": {json_error}')
-        except Exception as e:
-            print(f'An unexpected error occurred: {e}')
-
-    def preview_epub(self):
-        epub_file_name = self._file_name
-        assert self.get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
-        self.epub_to_chapters(epub_file_name)
-        self.print_previews()
-
-    def load_embeddings_file(self):
-        assert self.get_ext(self._file_name) == '.json', 'Should now be a json file.'
-        # Load the _embeddings from the json file
-        self._chapters, self._embeddings = self.load_json_file(self._file_name)
 
 
 def test_ebook_search(do_preview=False):
@@ -342,7 +338,7 @@ class TestSemanticSearch(unittest.TestCase):
             # Generate EPUB file path by replacing .json with .epub
             epub_path = self._json_path.replace('.json', '.epub')
             search_instance = SemanticSearch()
-            search_instance.embed_epub(epub_path)
+            search_instance.load_file(epub_path)
 
     def test_query(self):
         # Test loading an EPUB file
