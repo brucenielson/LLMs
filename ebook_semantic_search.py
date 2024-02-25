@@ -51,11 +51,15 @@ class SemanticSearch:
         f.write(text + '\n')
 
     @staticmethod
-    def score(query_embedding, embeddings):
-        # Compute the cosine similarity between the query and all paragraphs
-        scores = (np.dot(embeddings, query_embedding) /
-                  (np.linalg.norm(embeddings, axis=1) * np.linalg.norm(query_embedding)))
-        return scores
+    def cosine_similarity(query_embedding, embeddings):
+        # Calculate the dot product between the query and all embeddings
+        dot_products = np.dot(embeddings, query_embedding)
+        # Calculate the magnitude of the query and all embeddings
+        query_magnitude = np.linalg.norm(query_embedding)
+        embeddings_magnitudes = np.linalg.norm(embeddings, axis=1)
+        # Calculate cosine similarities
+        cosine_similarities = dot_products / (query_magnitude * embeddings_magnitudes)
+        return cosine_similarities
 
     @staticmethod
     def epub_sections_to_chapter(section):
@@ -69,6 +73,15 @@ class SemanticSearch:
         heading_list = [heading.get_text().strip() for heading in html.find_all('h1')]
         title = ' '.join(heading_list)
         return {'title': title, 'paragraphs': text_list}
+
+    @staticmethod
+    def index_to_para_chapter_index(index, chapters):
+        for chapter in chapters:
+            paras_len = len(chapter['paragraphs'])
+            if index < paras_len:
+                return chapter['paragraphs'][index], chapter['title'], index
+            index -= paras_len
+        return None
 
     @property
     def do_strip(self):
@@ -187,15 +200,6 @@ class SemanticSearch:
             preview = '{}: {} | wc: {} | paras: {}\n"{}..."\n'.format(i, title, wc, paras, initial)
             print(preview)
 
-    @staticmethod
-    def index_to_para_chapter_index(index, chapters):
-        for chapter in chapters:
-            paras_len = len(chapter['paragraphs'])
-            if index < paras_len:
-                return chapter['paragraphs'][index], chapter['title'], index
-            index -= paras_len
-        return None
-
     def strip_blank_chapters(self):
         # This takes a list of _chapters and removes the ones outside the range [first_chapter, last_chapter]
         # or if the chapter is too small (likely a title page or something)
@@ -220,7 +224,7 @@ class SemanticSearch:
         results_msgs = []
         # Create _embeddings for the query
         query_embedding = self.create_embeddings(query)[0]
-        scores = self.score(query_embedding, self._embeddings)
+        scores = self.cosine_similarity(query_embedding, self._embeddings)
         results = sorted([i for i in range(len(self._embeddings))], key=lambda i: scores[i], reverse=True)[:top_results]
         # Write out the results using the with statement to ensure proper file closure
         with open('result.text', 'a') as f:
