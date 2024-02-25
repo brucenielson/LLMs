@@ -91,14 +91,14 @@ class SemanticSearch:
         title = ' '.join(heading_list)
         return {'title': title, 'paragraphs': text_list}
 
-    @staticmethod
-    def index_to_para_chapter_index(index, chapters):
-        for chapter in chapters:
-            paras_len = len(chapter['paragraphs'])
-            if index < paras_len:
-                return chapter['paragraphs'][index], chapter['title'], index
-            index -= paras_len
-        return None
+    def index_into_chapters(self, index):
+        flattened_paragraphs = [{'text': paragraph, 'title': chapter['title'], 'para_no': para_no}
+                                for chapter in self._chapters
+                                for para_no, paragraph in enumerate(chapter['paragraphs'])]
+
+        return (flattened_paragraphs[index]['text'], flattened_paragraphs[index]['title'],
+                flattened_paragraphs[index]['para_no']
+                if 0 <= index < len(flattened_paragraphs) else None)
 
     @property
     def do_strip(self):
@@ -252,7 +252,9 @@ class SemanticSearch:
             query_msg = 'Query: "{}"'.format(query)
             self.print_and_write(query_msg, f)
             for i in results:
-                paragraph, title, paragraph_num = self.index_to_para_chapter_index(i, self._chapters)
+                # Convert the index (into a list of flattened paragraphs which is what embeddings is)
+                # into a chapter and paragraph number
+                paragraph, title, paragraph_num = self.index_into_chapters(i)
                 result_msg = ('\nChapter: "{}", Passage number: {}, Score: {:.2f}\n"{}"'
                               .format(title, paragraph_num, scores[i], paragraph))
                 results_msgs.append(result_msg)
