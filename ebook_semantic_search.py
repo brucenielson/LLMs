@@ -7,6 +7,7 @@ from os.path import exists
 import numpy as np
 import math
 import os
+import unittest
 
 
 class SemanticSearch:
@@ -220,16 +221,17 @@ class SemanticSearch:
         query_embedding = self.create_embeddings(query)[0]
         scores = self.score(query_embedding, self._embeddings)
         results = sorted([i for i in range(len(self._embeddings))], key=lambda i: scores[i], reverse=True)[:top_results]
-        # Write out the results
-        f = open('result.text', 'a')
-        header_msg = 'Results for query "{}" in "{}"'.format(query, self._file_name)
-        self.print_and_write(header_msg, f)
-        for index in results:
-            para, title, para_no = self.index_to_para_chapter_index(index, self._chapters)
-            result_msg = ('\nChapter: "{}", Passage number: {}, Score: {:.2f}\n"{}"'
-                          .format(title, para_no, scores[index], para))
-            self.print_and_write(result_msg, f)
-        self.print_and_write('\n', f)
+        # Write out the results using the with statement to ensure proper file closure
+        with open('result.text', 'a') as f:
+            header_msg = 'Results for query "{}" in "{}"'.format(query, self._file_name)
+            self.print_and_write(header_msg, f)
+            for index in results:
+                para, title, para_no = self.index_to_para_chapter_index(index, self._chapters)
+                result_msg = ('\nChapter: "{}", Passage number: {}, Score: {:.2f}\n"{}"'
+                              .format(title, para_no, scores[index], para))
+                self.print_and_write(result_msg, f)
+            self.print_and_write('\n', f)
+        return results
 
     def epub_to_chapters(self, epub_file_name):
         book = epub.read_epub(epub_file_name)
@@ -292,10 +294,52 @@ def test_ebook_search(do_preview=False):
     if not do_preview:
         ebook_search.load_file(book_path)
         query = 'Why do we need to corroborate theories at all?'
-        ebook_search.search(query, top_results=5)
+        results = ebook_search.search(query, top_results=5)
+        print(results)
     else:
         ebook_search.preview_epub()
 
 
+class TestSemanticSearch(unittest.TestCase):
+
+    def setUp(self):
+        # Set up any necessary variables or configurations for testing
+        # noinspection SpellCheckingInspection
+        self._json_path = \
+            r'D:\Documents\Papers\EPub Books\Karl R. Popper - The Logic of Scientific Discovery-Routledge (2002).json'
+
+    def test_query(self):
+        # Test loading an EPUB file
+        search_instance = SemanticSearch()
+        search_instance.load_file(self._json_path)
+
+        # Define your query and expected output
+        query = 'Why do we need to corroborate theories at all?'
+        expected_sizes = [501, 441, 462, 465, 122]
+        # expected_results = [
+        #     {'chapter': '10 CORROBORATION, OR HOW A THEORY STANDS UP TO TESTS', 'passage_number': 60, 'score': 0.69},
+        #     {'chapter': '10 CORROBORATION, OR HOW A THEORY STANDS UP TO TESTS', 'passage_number': 0, 'score': 0.68},
+        #     {'chapter': '10 CORROBORATION, OR HOW A THEORY STANDS UP TO TESTS', 'passage_number': 21, 'score': 0.68},
+        #     {'chapter': '10 CORROBORATION, OR HOW A THEORY STANDS UP TO TESTS', 'passage_number': 24, 'score': 0.66}
+        # ]
+
+        # Call the search method and get the actual results
+        actual_results = search_instance.search(query, top_results=5)
+        self.assertEqual(len(actual_results), len(expected_sizes))
+        # Check sizes of the passages
+        # for index, expected_size in zip(actual_results, expected_sizes):
+        #     para, _, _ = search_instance.index_to_para_chapter_index(index, search_instance._chapters)
+        #     actual_size = len(para.split())
+        #     self.assertEqual(actual_size, expected_size)
+
+        # Assert against the expected results
+        # self.assertEqual(actual_results, expected_results)
+
+    def tearDown(self):
+        # Clean up any resources or configurations after testing
+        pass
+
+
 if __name__ == "__main__":
     test_ebook_search(do_preview=False)
+    # unittest.main()
