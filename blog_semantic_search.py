@@ -37,7 +37,10 @@ class SemanticSearch:
         for section in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
             chapter = self.__epub_sections_to_chapter(section)
             if chapter:
-                self._chapters.append(chapter)
+                # Filter out short paragraphs
+                chapter['paragraphs'] = [para for para in chapter['paragraphs'] if len(para.split()) >= 150]
+                if chapter['paragraphs']:
+                    self._chapters.append(chapter)
 
     def __epub_sections_to_chapter(self, section):
         # Convert EPUB section to chapter with paragraphs
