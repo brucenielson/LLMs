@@ -29,6 +29,9 @@ class SemanticSearch:
         self._results_file = results_file
         self._chapters = None
         self._embeddings = None
+        # Initialize logger
+        self._logger = logging.getLogger(__name__)
+        self._logger.setLevel(logging.INFO)
 
         if full_file_name is not None:
             self.load_file(full_file_name)
@@ -238,16 +241,20 @@ class SemanticSearch:
         results_msgs = []
         # Create _embeddings for the query
         query_embedding = self.create_embeddings(query)[0]
+        # Calculate the cosine similarity between the query and all _embeddings
         scores = self.fast_cosine_similarity(query_embedding, self._embeddings)
-        results = sorted([i for i in range(len(self._embeddings))], key=lambda i: scores[i], reverse=True)[:top_results]
+        # Grab the top results
+        results = np.argsort(scores)[::-1][:top_results].tolist()
         # Write out the results using the with statement to ensure proper file closure
         with open(self._results_file, 'a') as f:
-            header_msg = 'Results for query "{}" in "{}"'.format(query, self._file_name)
-            self.print_and_write(header_msg, f)
-            for index in results:
-                para, title, para_no = self.index_to_para_chapter_index(index, self._chapters)
+            file_msg = 'File: "{}"'.format(self._file_name)
+            self.print_and_write(file_msg, f)
+            query_msg = 'Query: "{}"'.format(query)
+            self.print_and_write(query_msg, f)
+            for i in results:
+                paragraph, title, paragraph_num = self.index_to_para_chapter_index(i, self._chapters)
                 result_msg = ('\nChapter: "{}", Passage number: {}, Score: {:.2f}\n"{}"'
-                              .format(title, para_no, scores[index], para))
+                              .format(title, paragraph_num, scores[i], paragraph))
                 results_msgs.append(result_msg)
                 self.print_and_write(result_msg, f)
             self.print_and_write('\n', f)
