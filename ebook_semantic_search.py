@@ -9,6 +9,7 @@ import math
 import os
 import unittest
 from sklearn.metrics.pairwise import cosine_similarity
+import logging
 
 
 class SemanticSearch:
@@ -16,7 +17,7 @@ class SemanticSearch:
     # noinspection SpellCheckingInspection
     def __init__(self, full_file_name=None, model_name='sentence-transformers/multi-qa-mpnet-base-dot-v1',
                  do_strip=True, min_chapter_size=2000, first_chapter=0, last_chapter=math.inf,
-                 min_words_per_paragraph=150, max_words_per_paragraph=500):
+                 min_words_per_paragraph=150, max_words_per_paragraph=500, results_file='results.txt'):
         self._model = SentenceTransformer(model_name)
         self._file_name = full_file_name
         self._do_strip = do_strip
@@ -25,6 +26,7 @@ class SemanticSearch:
         self._last_chapter = last_chapter
         self._min_words = min_words_per_paragraph
         self._max_words = max_words_per_paragraph
+        self._results_file = results_file
         self._chapters = None
         self._embeddings = None
 
@@ -239,7 +241,7 @@ class SemanticSearch:
         scores = self.fast_cosine_similarity(query_embedding, self._embeddings)
         results = sorted([i for i in range(len(self._embeddings))], key=lambda i: scores[i], reverse=True)[:top_results]
         # Write out the results using the with statement to ensure proper file closure
-        with open('result.text', 'a') as f:
+        with open(self._results_file, 'a') as f:
             header_msg = 'Results for query "{}" in "{}"'.format(query, self._file_name)
             self.print_and_write(header_msg, f)
             for index in results:
