@@ -4,27 +4,27 @@ from bs4 import BeautifulSoup
 import numpy as np
 
 
-def epub_to_paragraphs(epub_file_path):
+def epub_to_paragraphs(epub_file_path, min_words=0):
     paragraphs = []
     book = epub.read_epub(epub_file_path)
 
     for section in book.get_items_of_type(ITEM_DOCUMENT):
-        paragraphs.extend(epub_sections_to_paragraphs(section))
+        paragraphs.extend(epub_sections_to_paragraphs(section, min_words=min_words))
 
     return paragraphs
 
 
-def epub_sections_to_paragraphs(section):
+def epub_sections_to_paragraphs(section, min_words=0):
     html = BeautifulSoup(section.get_body_content(), 'html.parser')
     p_tag_list = html.find_all('p')
     paragraphs = [
         {
             'text': paragraph.get_text().strip(),
             'chapter_name': ' '.join([heading.get_text().strip() for heading in html.find_all('h1')]),
-            'para_no': para_no
+            'para_no': para_no,
         }
         for para_no, paragraph in enumerate(p_tag_list)
-        if len(paragraph.get_text().split()) >= 150
+        if len(paragraph.get_text().split()) >= min_words
     ]
     return paragraphs
 
@@ -54,12 +54,12 @@ def semantic_search(model, embeddings, query, top_results=5):
 
 
 def test_semantic_search():
-    paragraphs = epub_to_paragraphs(r'D:\Documents\Papers\EPub Books\Karl R. Popper - The Logic of Scientific Discovery-Routledge (2002).epub')
+    paragraphs = epub_to_paragraphs(r"D:\Documents\Papers\EPub Books\KJV.epub", min_words=3)
     model = SentenceTransformer('sentence-transformers/multi-qa-mpnet-base-dot-v1')
     embeddings = get_embeddings(model, paragraphs)
 
-    query = 'Why do we need to corroborate theories at all?'
-    results = semantic_search(model, embeddings, query, top_results=5)
+    query = 'Did Jesus ever cry?'
+    results = semantic_search(model, embeddings, query)
 
     print("Top results:")
     for result in results:
@@ -67,7 +67,7 @@ def test_semantic_search():
         chapter_name = para_info['chapter_name']
         para_no = para_info['para_no']
         paragraph_text = para_info['text']
-        print(f"Chapter: '{chapter_name}', Passage number: {para_no}, Text: '{paragraph_text[:500]}...'")
+        print(f"Chapter: '{chapter_name}', Passage number: {para_no}, Text: '{paragraph_text}'")
         print('')
 
 
