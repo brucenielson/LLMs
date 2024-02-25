@@ -29,6 +29,94 @@ class SemanticSearch:
         if full_file_name is not None:
             self.load_file(full_file_name)
 
+    @staticmethod
+    def get_ext(full_file_name):
+        return full_file_name[full_file_name.rfind('.'):]
+
+    @staticmethod
+    def switch_ext(full_file_name, new_ext):
+        return full_file_name[:full_file_name.rfind('.')] + new_ext
+
+    @staticmethod
+    def read_json(json_path):
+        print('Loading _embeddings from "{}"'.format(json_path))
+        with open(json_path, 'r') as f:
+            values = json.load(f)
+        return values['_chapters'], np.array(values['_embeddings'])
+
+    @staticmethod
+    def print_and_write(text, f):
+        print(text)
+        f.write(text + '\n')
+
+    @staticmethod
+    def score(query_embedding, embeddings):
+        # Compute the cosine similarity between the query and all paragraphs
+        scores = (np.dot(embeddings, query_embedding) /
+                  (np.linalg.norm(embeddings, axis=1) * np.linalg.norm(query_embedding)))
+        return scores
+
+    @staticmethod
+    def epub_sections_to_chapter(section):
+        # Convert to HTML and extract paragraphs
+        html = BeautifulSoup(section.get_body_content(), 'html.parser')
+        p_tag_list = html.find_all('p')
+        text_list = [paragraph.get_text().strip() for paragraph in p_tag_list if paragraph.get_text().strip()]
+        if len(text_list) == 0:
+            return None
+        # Extract and process headings
+        heading_list = [heading.get_text().strip() for heading in html.find_all('h1')]
+        title = ' '.join(heading_list)
+        return {'title': title, 'paragraphs': text_list}
+
+    @property
+    def do_strip(self):
+        return self._do_strip
+
+    @do_strip.setter
+    def do_strip(self, value):
+        self._do_strip = value
+
+    @property
+    def min_chapter_size(self):
+        return self._min_chapter_size
+
+    @min_chapter_size.setter
+    def min_chapter_size(self, value):
+        self._min_chapter_size = value
+
+    @property
+    def first_chapter(self):
+        return self._first_chapter
+
+    @first_chapter.setter
+    def first_chapter(self, value):
+        self._first_chapter = value
+
+    @property
+    def last_chapter(self):
+        return self._last_chapter
+
+    @last_chapter.setter
+    def last_chapter(self, value):
+        self._last_chapter = value
+
+    @property
+    def min_words_per_paragraph(self):
+        return self._min_words
+
+    @min_words_per_paragraph.setter
+    def min_words_per_paragraph(self, value):
+        self._min_words = value
+
+    @property
+    def max_words_per_paragraph(self):
+        return self._max_words
+
+    @max_words_per_paragraph.setter
+    def max_words_per_paragraph(self, value):
+        self._max_words = value
+
     def load_model(self, model_name):
         self._model = SentenceTransformer(model_name)
 
@@ -89,35 +177,14 @@ class SemanticSearch:
             if len(chapter['title']) == 0:
                 chapter['title'] = '(Unnamed) Chapter {no}'.format(no=i + 1)
 
-    @staticmethod
-    def print_previews(chapters):
-        for (i, chapter) in enumerate(chapters):
+    def print_previews(self):
+        for (i, chapter) in enumerate(self._chapters):
             title = chapter['title']
             wc = len(' '.join(chapter['paragraphs']).split(' '))
             paras = len(chapter['paragraphs'])
             initial = chapter['paragraphs'][0][:100]
             preview = '{}: {} | wc: {} | paras: {}\n"{}..."\n'.format(i, title, wc, paras, initial)
             print(preview)
-
-    @staticmethod
-    def get_ext(full_file_name):
-        return full_file_name[full_file_name.rfind('.'):]
-
-    @staticmethod
-    def switch_ext(full_file_name, new_ext):
-        return full_file_name[:full_file_name.rfind('.')] + new_ext
-
-    @staticmethod
-    def read_json(json_path):
-        print('Loading _embeddings from "{}"'.format(json_path))
-        with open(json_path, 'r') as f:
-            values = json.load(f)
-        return values['_chapters'], np.array(values['_embeddings'])
-
-    @staticmethod
-    def print_and_write(text, f):
-        print(text)
-        f.write(text + '\n')
 
     @staticmethod
     def index_to_para_chapter_index(index, chapters):
@@ -127,26 +194,6 @@ class SemanticSearch:
                 return chapter['paragraphs'][index], chapter['title'], index
             index -= paras_len
         return None
-
-    @staticmethod
-    def score(query_embedding, embeddings):
-        # Compute the cosine similarity between the query and all paragraphs
-        scores = (np.dot(embeddings, query_embedding) /
-                  (np.linalg.norm(embeddings, axis=1) * np.linalg.norm(query_embedding)))
-        return scores
-
-    @staticmethod
-    def epub_sections_to_chapter(section):
-        # Convert to HTML and extract paragraphs
-        html = BeautifulSoup(section.get_body_content(), 'html.parser')
-        p_tag_list = html.find_all('p')
-        text_list = [paragraph.get_text().strip() for paragraph in p_tag_list if paragraph.get_text().strip()]
-        if len(text_list) == 0:
-            return None
-        # Extract and process headings
-        heading_list = [heading.get_text().strip() for heading in html.find_all('h1')]
-        title = ' '.join(heading_list)
-        return {'title': title, 'paragraphs': text_list}
 
     def strip_blank_chapters(self):
         # This takes a list of _chapters and removes the ones outside the range [first_chapter, last_chapter]
@@ -228,7 +275,7 @@ class SemanticSearch:
         epub_file_name = self._file_name
         assert self.get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
         self.epub_to_chapters(epub_file_name)
-        self.print_previews(self._chapters)
+        self.print_previews()
 
     def load_embeddings_file(self):
         assert self.get_ext(self._file_name) == '.json', 'Should now be a json file.'
