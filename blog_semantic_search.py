@@ -9,48 +9,42 @@ class SemanticSearch:
     def __init__(self, model_name='sentence-transformers/multi-qa-mpnet-base-dot-v1'):
         # Initialize the SentenceTransformer model
         self._model = SentenceTransformer(model_name)
-        # Placeholder for chapters and embeddings
-        self._chapters = []
+        # Placeholder for paragraphs and embeddings
+        self._paragraphs = []
         self._embeddings = None
 
     def load_and_embed_epub(self, epub_file_path):
-        # Load EPUB file and convert to chapters with paragraphs
-        self.__epub_to_chapters(epub_file_path)
-        # Extract paragraphs from chapters
-        paragraphs = [paragraph for chapter in self._chapters for paragraph in chapter['paragraphs']]
+        # Load EPUB file and convert to paragraphs
+        self.__epub_to_paragraphs(epub_file_path)
         # Generate embeddings for paragraphs using the model
-        self._embeddings = self.__create_embeddings(paragraphs)
+        self._embeddings = self.__create_embeddings([para['text'] for para in self._paragraphs])
 
     def search(self, query, top_results=5):
         # Generate embeddings for the query
-        query_embedding = self.__create_embeddings(query)[0]
+        query_embedding = self.__create_embeddings([query])[0]
         # Calculate cosine similarity between query and all embeddings
         scores = self.__cosine_similarity(query_embedding, self._embeddings)
         # Get indices of top results
         results = np.argsort(scores)[::-1][:top_results].tolist()
         return results
 
-    def __epub_to_chapters(self, epub_file_path):
+    def __epub_to_paragraphs(self, epub_file_path):
         # Load EPUB file
         book = epub.read_epub(epub_file_path)
         # Extract paragraphs from EPUB sections
         for section in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
-            chapter = self.__epub_sections_to_chapter(section)
-            if chapter:
-                # Filter out short paragraphs
-                chapter['paragraphs'] = [para for para in chapter['paragraphs'] if len(para.split()) >= 150]
-                if chapter['paragraphs']:
-                    self._chapters.append(chapter)
+            paragraphs = self.__epub_sections_to_paragraphs(section)
+            self._paragraphs.extend(paragraphs)
 
-    def __epub_sections_to_chapter(self, section):
-        # Convert EPUB section to chapter with paragraphs
+    def __epub_sections_to_paragraphs(self, section):
+        # Convert EPUB section to paragraphs with additional information
         html = BeautifulSoup(section.get_body_content(), 'html.parser')
         p_tag_list = html.find_all('p')
-        text_list = [paragraph.get_text().strip() for paragraph in p_tag_list if paragraph.get_text().strip()]
-        if len(text_list) == 0:
-            return None
-        title = ' '.join([heading.get_text().strip() for heading in html.find_all('h1')])
-        return {'title': title, 'paragraphs': text_list}
+        paragraphs = [{'text': paragraph.get_text().strip(),
+                       'chapter_name': ' '.join([heading.get_text().strip() for heading in html.find_all('h1')]),
+                       'para_no': para_no}
+                      for para_no, paragraph in enumerate(p_tag_list)]
+        return paragraphs
 
     def __create_embeddings(self, texts):
         # Generate embeddings for a list of texts using the model
@@ -65,15 +59,6 @@ class SemanticSearch:
         cosine_similarities = dot_products / (query_magnitude * embeddings_magnitudes)
         return cosine_similarities
 
-    def index_into_chapters(self, index):
-        flattened_paragraphs = [{'text': paragraph, 'title': chapter['title'], 'para_no': para_no}
-                                for chapter in self._chapters
-                                for para_no, paragraph in enumerate(chapter['paragraphs'])]
-
-        return (flattened_paragraphs[index]['text'], flattened_paragraphs[index]['title'],
-                flattened_paragraphs[index]['para_no']
-                if 0 <= index < len(flattened_paragraphs) else None)
-
 
 # Example Usage
 if __name__ == "__main__":
@@ -81,8 +66,7 @@ if __name__ == "__main__":
     simple_search = SemanticSearch()
 
     # Hardcoded EPUB file path for simplicity
-    epub_path = \
-        r'D:\Documents\Papers\EPub Books\Karl R. Popper - The Logic of Scientific Discovery-Routledge (2002).epub'
+    epub_path = r'D:\Documents\Papers\EPub Books\Karl R. Popper - The Logic of Scientific Discovery-Routledge (2002).epub'
 
     # Load and embed the EPUB file
     simple_search.load_and_embed_epub(epub_path)
@@ -96,7 +80,6 @@ if __name__ == "__main__":
     # Print the results along with the extracted information
     print("Top results:")
     for result in results:
-        text, title, para_no = simple_search.index_into_chapters(result)
-        print(f"Chapter: '{title}', Passage number: {para_no}, Text: '{text[:1000]}...'")
+        para_info = simple_search._paragraphs[result]
+        print(f"Chapter: '{para_info['chapter_name']}', Passage number: {para_info['para_no']}, Text: '{para_info['text'][:1000]}...'")
         print('')
-
