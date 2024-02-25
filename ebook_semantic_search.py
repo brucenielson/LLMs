@@ -8,6 +8,7 @@ import numpy as np
 import math
 import os
 import unittest
+from sklearn.metrics.pairwise import cosine_similarity
 
 
 class SemanticSearch:
@@ -60,6 +61,17 @@ class SemanticSearch:
         # Calculate cosine similarities
         cosine_similarities = dot_products / (query_magnitude * embeddings_magnitudes)
         return cosine_similarities
+
+    @staticmethod
+    def fast_cosine_similarity(query_embedding, embeddings):
+        # Reshape the query_embedding to a 2D array for compatibility with cosine_similarity
+        query_embedding = query_embedding.reshape(1, -1)
+        # Calculate cosine similarities
+        similarities = cosine_similarity(query_embedding, embeddings)
+        # Flatten the result to a 1D array
+        similarities = similarities.flatten()
+
+        return similarities
 
     @staticmethod
     def epub_sections_to_chapter(section):
@@ -224,7 +236,7 @@ class SemanticSearch:
         results_msgs = []
         # Create _embeddings for the query
         query_embedding = self.create_embeddings(query)[0]
-        scores = self.cosine_similarity(query_embedding, self._embeddings)
+        scores = self.fast_cosine_similarity(query_embedding, self._embeddings)
         results = sorted([i for i in range(len(self._embeddings))], key=lambda i: scores[i], reverse=True)[:top_results]
         # Write out the results using the with statement to ensure proper file closure
         with open('result.text', 'a') as f:
