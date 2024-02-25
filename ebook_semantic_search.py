@@ -10,54 +10,62 @@ import os
 import unittest
 from sklearn.metrics.pairwise import cosine_similarity
 import logging
+from typing import List, Optional, Tuple, Union
+from typing import TextIO
 
 
 class SemanticSearch:
-
     # noinspection SpellCheckingInspection
-    def __init__(self, full_file_name=None, model_name='sentence-transformers/multi-qa-mpnet-base-dot-v1',
-                 do_strip=True, min_chapter_size=2000, first_chapter=0, last_chapter=math.inf,
-                 min_words_per_paragraph=150, max_words_per_paragraph=500, results_file='results.txt'):
-        self._model = SentenceTransformer(model_name)
-        self._file_name = full_file_name
-        self._do_strip = do_strip
-        self._min_chapter_size = min_chapter_size
-        self._first_chapter = first_chapter
-        self._last_chapter = last_chapter
-        self._min_words = min_words_per_paragraph
-        self._max_words = max_words_per_paragraph
-        self._results_file = results_file
-        self._chapters = None
-        self._embeddings = None
+    def __init__(self,
+                 full_file_name: Optional[str] = None,
+                 model_name: str = 'sentence-transformers/multi-qa-mpnet-base-dot-v1',
+                 do_strip: bool = True,
+                 min_chapter_size: int = 2000,
+                 first_chapter: int = 0,
+                 last_chapter: Union[int, float] = math.inf,
+                 min_words_per_paragraph: int = 150,
+                 max_words_per_paragraph: int = 500,
+                 results_file: str = 'results.txt') -> None:
+        self._model: SentenceTransformer = SentenceTransformer(model_name)
+        self._file_name: Optional[str] = full_file_name
+        self._do_strip: bool = do_strip
+        self._min_chapter_size: int = min_chapter_size
+        self._first_chapter: int = first_chapter
+        self._last_chapter: Union[int, float] = last_chapter
+        self._min_words: int = min_words_per_paragraph
+        self._max_words: int = max_words_per_paragraph
+        self._results_file: str = results_file
+        self._chapters: Optional[List[dict]] = None
+        self._embeddings: Optional[np.ndarray] = None
         # Initialize logger
-        self._logger = logging.getLogger(__name__)
+        self._logger: logging.Logger = logging.getLogger(__name__)
         self._logger.setLevel(logging.INFO)
 
         if full_file_name is not None:
             self.load_file(full_file_name)
 
     @staticmethod
-    def get_ext(full_file_name):
+    def get_ext(full_file_name: str) -> str:
         return full_file_name[full_file_name.rfind('.'):]
 
     @staticmethod
-    def switch_ext(full_file_name, new_ext):
+    def switch_ext(full_file_name: str, new_ext: str) -> str:
         return full_file_name[:full_file_name.rfind('.')] + new_ext
 
     @staticmethod
-    def read_json(json_path):
+    def read_json(json_path: str) -> Tuple[List[dict], np.ndarray]:
         print('Loading _embeddings from "{}"'.format(json_path))
         with open(json_path, 'r') as f:
             values = json.load(f)
         return values['_chapters'], np.array(values['_embeddings'])
 
     @staticmethod
-    def print_and_write(text, f):
+    def print_and_write(text: str, f: TextIO) -> None:
         print(text)
         f.write(text + '\n')
 
     @staticmethod
-    def cosine_similarity(query_embedding, embeddings):
+    def cosine_similarity(query_embedding: np.ndarray, embeddings: np.ndarray) -> np.ndarray:
         # Calculate the dot product between the query and all embeddings
         dot_products = np.dot(embeddings, query_embedding)
         # Calculate the magnitude of the query and all embeddings
@@ -68,7 +76,7 @@ class SemanticSearch:
         return cosine_similarities
 
     @staticmethod
-    def fast_cosine_similarity(query_embedding, embeddings):
+    def fast_cosine_similarity(query_embedding: np.ndarray, embeddings: np.ndarray) -> np.ndarray:
         # Reshape the query_embedding to a 2D array for compatibility with cosine_similarity
         query_embedding = query_embedding.reshape(1, -1)
         # Calculate cosine similarities
@@ -79,7 +87,7 @@ class SemanticSearch:
         return similarities
 
     @staticmethod
-    def epub_sections_to_chapter(section):
+    def epub_sections_to_chapter(section: epub.EpubHtml) -> Optional[dict]:
         # Convert to HTML and extract paragraphs
         html = BeautifulSoup(section.get_body_content(), 'html.parser')
         p_tag_list = html.find_all('p')
@@ -92,57 +100,57 @@ class SemanticSearch:
         return {'title': title, 'paragraphs': text_list}
 
     @property
-    def do_strip(self):
+    def do_strip(self) -> bool:
         return self._do_strip
 
     @do_strip.setter
-    def do_strip(self, value):
+    def do_strip(self, value: bool) -> None:
         self._do_strip = value
 
     @property
-    def min_chapter_size(self):
+    def min_chapter_size(self) -> int:
         return self._min_chapter_size
 
     @min_chapter_size.setter
-    def min_chapter_size(self, value):
+    def min_chapter_size(self, value: int) -> None:
         self._min_chapter_size = value
 
     @property
-    def first_chapter(self):
+    def first_chapter(self) -> int:
         return self._first_chapter
 
     @first_chapter.setter
-    def first_chapter(self, value):
+    def first_chapter(self, value: int) -> None:
         self._first_chapter = value
 
     @property
-    def last_chapter(self):
+    def last_chapter(self) -> Union[int, float]:
         return self._last_chapter
 
     @last_chapter.setter
-    def last_chapter(self, value):
+    def last_chapter(self, value: Union[int, float]) -> None:
         self._last_chapter = value
 
     @property
-    def min_words_per_paragraph(self):
+    def min_words_per_paragraph(self) -> int:
         return self._min_words
 
     @min_words_per_paragraph.setter
-    def min_words_per_paragraph(self, value):
+    def min_words_per_paragraph(self, value: int) -> None:
         self._min_words = value
 
     @property
-    def max_words_per_paragraph(self):
+    def max_words_per_paragraph(self) -> int:
         return self._max_words
 
     @max_words_per_paragraph.setter
-    def max_words_per_paragraph(self, value):
+    def max_words_per_paragraph(self, value: int) -> None:
         self._max_words = value
 
-    def load_model(self, model_name):
+    def load_model(self, model_name: str) -> None:
         self._model = SentenceTransformer(model_name)
 
-    def load_file(self, full_file_name):
+    def load_file(self, full_file_name: str) -> None:
         # Assert the full file name has an .epub or .json extension
         assert self.get_ext(full_file_name) in ['.epub', '.json'], ('Invalid file format. '
                                                                     'Please upload an epub or json file.')
@@ -164,8 +172,8 @@ class SemanticSearch:
             # Load the embeddings from the json file
             self._chapters, self._embeddings = self.read_json(self._file_name)
 
-    def search(self, query, top_results=5):
-        results_msgs = []
+    def search(self, query: str, top_results: int = 5) -> Tuple[List[str], List[int]]:
+        results_msgs: List[str] = []
         # Create _embeddings for the query
         query_embedding = self.__create_embeddings(query)[0]
         # Calculate the cosine similarity between the query and all _embeddings
@@ -189,13 +197,13 @@ class SemanticSearch:
             self.print_and_write('\n', f)
         return results_msgs, results
 
-    def preview_epub(self):
+    def preview_epub(self) -> None:
         epub_file_name = self._file_name
         assert self.get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
         self.__epub_to_chapters(epub_file_name)
         self.__print_previews()
 
-    def __embed_epub(self, epub_file_name):
+    def __embed_epub(self, epub_file_name: str) -> None:
         # Assert this is an epub file
         assert self.get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
         # Create a json file with the same name as the epub
@@ -224,7 +232,7 @@ class SemanticSearch:
         except Exception as e:
             print(f'An unexpected error occurred: {e}')
 
-    def __index_into_chapters(self, index):
+    def __index_into_chapters(self, index: int) -> Tuple[str, str, int]:
         flattened_paragraphs = [{'text': paragraph, 'title': chapter['title'], 'para_no': para_no}
                                 for chapter in self._chapters
                                 for para_no, paragraph in enumerate(chapter['paragraphs'])]
@@ -233,7 +241,7 @@ class SemanticSearch:
                 flattened_paragraphs[index]['para_no']
                 if 0 <= index < len(flattened_paragraphs) else None)
 
-    def __epub_to_chapters(self, epub_file_name):
+    def __epub_to_chapters(self, epub_file_name: str) -> None:
         book = epub.read_epub(epub_file_name)
         item_doc = book.get_items_of_type(ebooklib.ITEM_DOCUMENT)
         book_sections = list(item_doc)
@@ -244,13 +252,13 @@ class SemanticSearch:
             self.__strip_blank_chapters()
         self.__format_paragraphs()
 
-    def __create_embeddings(self, texts):
-        if type(texts) is str:
+    def __create_embeddings(self, texts: Union[str, List[str]]) -> np.ndarray:
+        if isinstance(texts, str):
             texts = [texts]
         texts = [text.replace("\n", " ") for text in texts]
         return self._model.encode(texts)
 
-    def __format_paragraphs(self):
+    def __format_paragraphs(self) -> None:
         # Split paragraphs that are too long and merge paragraphs that are too short
         for i, chapter in enumerate(self._chapters):
             for j, paragraph in enumerate(chapter['paragraphs']):
@@ -265,11 +273,11 @@ class SemanticSearch:
                     chapter['paragraphs'].insert(j + 1, new_paragraph)
 
                 # Merge paragraphs that are too short
-                while len(chapter['paragraphs'][j].split()) < self._min_words and j+1 < len(chapter['paragraphs']):
+                while len(chapter['paragraphs'][j].split()) < self._min_words and j + 1 < len(chapter['paragraphs']):
                     # This paragraph is too short, so merge it with the next one
-                    chapter['paragraphs'][j] += '\n' + chapter['paragraphs'][j+1]
+                    chapter['paragraphs'][j] += '\n' + chapter['paragraphs'][j + 1]
                     # Delete the next paragraph since we just merged it to the previous one
-                    del chapter['paragraphs'][j+1]
+                    del chapter['paragraphs'][j + 1]
 
             # After the loop, handle the case where the last paragraph is too short
             last_index = len(chapter['paragraphs']) - 1
@@ -286,7 +294,7 @@ class SemanticSearch:
             if len(chapter['title']) == 0:
                 chapter['title'] = '(Unnamed) Chapter {no}'.format(no=i + 1)
 
-    def __print_previews(self):
+    def __print_previews(self) -> None:
         for (i, chapter) in enumerate(self._chapters):
             title = chapter['title']
             wc = len(' '.join(chapter['paragraphs']).split(' '))
@@ -295,7 +303,7 @@ class SemanticSearch:
             preview = '{}: {} | wc: {} | paras: {}\n"{}..."\n'.format(i, title, wc, paras, initial)
             print(preview)
 
-    def __strip_blank_chapters(self):
+    def __strip_blank_chapters(self) -> None:
         # This takes a list of _chapters and removes the ones outside the range [first_chapter, last_chapter]
         # or if the chapter is too small (likely a title page or something)
         last_chapter = min(self._last_chapter, len(self._chapters) - 1)
