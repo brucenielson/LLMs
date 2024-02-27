@@ -48,5 +48,5 @@ def cosine_similarity(x, y):
 # calculate cosine similarity on [1, 1, 1, 0, 1, 0] and [1, 1, 1, 1, 0, 1]
 x = [1, 1, 1, 0, 1, 0]
 y = [1, 1, 1, 1, 0, 1]
-cs = cosine_similarity(x, y)  # 0.75
+cs = cosine_similarity(x, y)
 print(cs)
