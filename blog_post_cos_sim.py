@@ -50,3 +50,9 @@ x = [1, 1, 1, 0, 1, 0]
 y = [1, 1, 1, 1, 0, 1]
 cs = cosine_similarity(x, y)
 print(cs)
+
+
+# Links
+# https://www.machinelearningplus.com/nlp/cosine-similarity/
+# https://en.wikipedia.org/wiki/Cosine_similarity
+# https://builtin.com/machine-learning/cosine-similarity
