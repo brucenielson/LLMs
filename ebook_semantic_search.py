@@ -7,11 +7,13 @@ from os.path import exists
 import numpy as np
 import math
 import os
-import unittest
 from sklearn.metrics.pairwise import cosine_similarity
 import logging
 from typing import List, Optional, Tuple, Union
 from typing import TextIO
+from PyPDF2 import PdfReader
+import unittest
+from pathlib import Path
 
 
 class SemanticSearch:
@@ -153,8 +155,8 @@ class SemanticSearch:
 
     def load_file(self, full_file_name: str) -> None:
         # Assert the full file name has an .epub or .json extension
-        assert self.get_ext(full_file_name) in ['.epub', '.json'], ('Invalid file format. '
-                                                                    'Please upload an epub or json file.')
+        assert self.get_ext(full_file_name) in ['.epub', '.json', '.pdf'], ('Invalid file format. '
+                                                                            'Please upload an epub or json file.')
         # Reset all the variables on load
         self._chapters = None
         self._embeddings = None
@@ -162,13 +164,13 @@ class SemanticSearch:
         # Load files
         self._file_name = full_file_name
         # Load the embeddings
-        if self.get_ext(self._file_name) == '.epub':
-            # Create a json file with the same name as the epub
+        if self.get_ext(self._file_name) in ['.pdf', '.epub']:
+            # Create a json file with the same name as the pdf
             json_file_name = self.switch_ext(self._file_name, '.json')
             # Check if the json file exists
             if not exists(json_file_name):
                 # No json file exists, so create embeddings to put into a json file
-                self.__embed_epub(self._file_name)
+                self.__embed_file(self._file_name)
             else:
                 self._file_name = json_file_name
         # A json file should now exist with our embeddings
@@ -206,12 +208,12 @@ class SemanticSearch:
     def preview_epub(self) -> None:
         epub_file_name = self._file_name
         assert self.get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
-        self.__epub_to_chapters(epub_file_name)
+        self.__file_to_chapters(epub_file_name)
         self.__print_previews()
 
-    def __embed_epub(self, epub_file_name: str) -> None:
+    def __embed_file(self, epub_file_name: str) -> None:
         # Assert this is an epub file
-        assert self.get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
+        assert self.get_ext(epub_file_name) in ['.epub', '.pdf'], 'Invalid file format. Please upload an epub file.'
         # Create a json file with the same name as the epub
         json_file_name = self.switch_ext(epub_file_name, '.json')
         # Delete any existing json file with the same name
@@ -220,7 +222,7 @@ class SemanticSearch:
         # Create the json file name
         json_file_name = self.switch_ext(epub_file_name, '.json')
         # Convert the epub to html and extract the paragraphs
-        self.__epub_to_chapters(epub_file_name)
+        self.__file_to_chapters(epub_file_name)
         print('Generating embeddings for "{}"\n'.format(epub_file_name))
         paragraphs = [paragraph for chapter in self._chapters for paragraph in chapter['paragraphs']]
         # Generate the _embeddings using the _model
@@ -248,12 +250,43 @@ class SemanticSearch:
                 self._flattened_paragraphs[index]['para_no']
                 if 0 <= index < len(self._flattened_paragraphs) else None)
 
+    def __file_to_chapters(self, file_path: str) -> None:
+        file_ext = self.get_ext(file_path)
+        if file_ext == '.epub':
+            self.__epub_to_chapters(file_path)
+        elif file_ext == '.pdf':
+            self.__pdf_to_chapters(file_path)
+        else:
+            raise ValueError('Invalid file format. Please upload an epub or pdf file.')
+
     def __epub_to_chapters(self, epub_file_name: str) -> None:
         book = epub.read_epub(epub_file_name)
         item_doc = book.get_items_of_type(ebooklib.ITEM_DOCUMENT)
         book_sections = list(item_doc)
         chapters = [result for section in book_sections
                     if (result := self.epub_sections_to_chapter(section)) is not None]
+        self._chapters = chapters
+        if self._do_strip:
+            self.__strip_blank_chapters()
+        self.__format_paragraphs()
+
+    def __pdf_to_chapters(self, pdf_file_path: str) -> None:
+        pdf_path = Path(pdf_file_path)
+        pdf_text = ""
+        with open(pdf_path, "rb") as pdf_file:
+            pdf_reader = PdfReader(pdf_file)
+            for page_num in range(len(pdf_reader.pages)):
+                pdf_text += pdf_reader.pages[page_num].extract_text()
+
+        # Split the PDF text into paragraphs or chapters based on your logic
+        # You might need to adjust this based on the structure of your PDF
+        # For simplicity, let's consider each line as a paragraph
+        paragraphs = pdf_text.split('\n')
+
+        # Create chapters based on your requirements
+        # You might want to improve this logic based on your specific use case
+        chapters = [{'title': 'Chapter {}'.format(i + 1), 'paragraphs': [para]} for i, para in enumerate(paragraphs)]
+
         self._chapters = chapters
         if self._do_strip:
             self.__strip_blank_chapters()
@@ -336,60 +369,60 @@ def test_ebook_search(do_preview=False):
         ebook_search.preview_epub()
 
 
-# class TestSemanticSearch(unittest.TestCase):
-#
-#     def setUp(self):
-#         # Set up any necessary variables or configurations for testing
-#         # noinspection SpellCheckingInspection
-#         self._json_path = \
-#             r'D:\Documents\Papers\EPub Books\Karl R. Popper - The Logic of Scientific Discovery-Routledge (2002).json'
-#
-#         # Check if the JSON file exists, if not, load EPUB and save embeddings in JSON
-#         if not exists(self._json_path):
-#             # Generate EPUB file path by replacing .json with .epub
-#             epub_path = self._json_path.replace('.json', '.epub')
-#             search_instance = SemanticSearch()
-#             search_instance.load_file(epub_path)
-#
-#     def test_query(self):
-#         # Test loading an EPUB file
-#         search_instance = SemanticSearch()
-#         search_instance.load_file(self._json_path)
-#
-#         # Define your query and expected output
-#         query = 'Why do we need to corroborate theories at all?'
-#         expected_results = [501, 441, 462, 465, 122]
-#         expected_results_msgs = '''
-#             Chapter: "10 CORROBORATION, OR HOW A THEORY STANDS UP TO TESTS", Passage number: 60, Score: 0.69
-#             "*6 See my Postscript, chapter *ii. In my theory of corroboration—in direct opposition to Keynes’s,
-#             Jeffreys’s, and Carnap’s theories of probability—corroboration does not decrease with testability, but
-#             tends to increase with it.
-#             *7 This may also be expressed by the unacceptable rule: ‘Always choose the hypothesis which is most ad hoc!’
-#             2 Keynes, op. cit., p. 305.
-#             *8 Carnap, in his Logical Foundations of Probability, 1950, believes in the practical value of predictions;
-#             nevertheless, he draws part of the conclusion here mentioned—that we might be content with our basic
-#             statements. For he says that theories (he speaks of ‘laws’) are ‘not indispensable’ for science—not even
-#             for making predictions: we can manage throughout with singular statements. ‘Nevertheless’, he writes
-#             (p. 575) ‘it is expedient, of course, to state universal laws in books on physics, biology, psychology,
-#             etc.’ But the question is not one of expediency—it is one of scientific curiosity. Some scientists want
-#             to explain the world: their aim is to find satisfactory explanatory theories—well testable, i.e. simple
-#             theories—and to test them. (See also appendix *x and section *15 of my Postscript.)"
-#             '''
-#         # Call the search method and get the actual results
-#         actual_results_msgs, actual_results = search_instance.search(query, top_results=5)
-#         stripped_result_actual = (actual_results_msgs[0].replace(" ", "").replace("\t", "")
-#                                   .replace("\n", ""))
-#         stripped_expected = (expected_results_msgs.replace(" ", "").replace("\t", "")
-#                              .replace("\n", ""))
-#         self.assertEqual(expected_results, actual_results)
-#         self.assertEqual(stripped_expected, stripped_result_actual)
-#
-#     def tearDown(self):
-#         # Clean up any resources or configurations after testing
-#         pass
+class TestSemanticSearch(unittest.TestCase):
+
+    def setUp(self):
+        # Set up any necessary variables or configurations for testing
+        # noinspection SpellCheckingInspection
+        self._json_path = \
+            r'D:\Documents\Papers\EPub Books\Karl R. Popper - The Logic of Scientific Discovery-Routledge (2002).json'
+
+        # Check if the JSON file exists, if not, load EPUB and save embeddings in JSON
+        if not exists(self._json_path):
+            # Generate EPUB file path by replacing .json with .epub
+            epub_path = self._json_path.replace('.json', '.epub')
+            search_instance = SemanticSearch()
+            search_instance.load_file(epub_path)
+
+    def test_query(self):
+        # Test loading an EPUB file
+        search_instance = SemanticSearch()
+        search_instance.load_file(self._json_path)
+
+        # Define your query and expected output
+        query = 'Why do we need to corroborate theories at all?'
+        expected_results = [501, 441, 462, 465, 122]
+        expected_results_msgs = '''
+            Chapter: "10 CORROBORATION, OR HOW A THEORY STANDS UP TO TESTS", Passage number: 60, Score: 0.69
+            "*6 See my Postscript, chapter *ii. In my theory of corroboration—in direct opposition to Keynes’s,
+            Jeffreys’s, and Carnap’s theories of probability—corroboration does not decrease with testability, but
+            tends to increase with it.
+            *7 This may also be expressed by the unacceptable rule: ‘Always choose the hypothesis which is most ad hoc!’
+            2 Keynes, op. cit., p. 305.
+            *8 Carnap, in his Logical Foundations of Probability, 1950, believes in the practical value of predictions;
+            nevertheless, he draws part of the conclusion here mentioned—that we might be content with our basic
+            statements. For he says that theories (he speaks of ‘laws’) are ‘not indispensable’ for science—not even
+            for making predictions: we can manage throughout with singular statements. ‘Nevertheless’, he writes
+            (p. 575) ‘it is expedient, of course, to state universal laws in books on physics, biology, psychology,
+            etc.’ But the question is not one of expediency—it is one of scientific curiosity. Some scientists want
+            to explain the world: their aim is to find satisfactory explanatory theories—well testable, i.e. simple
+            theories—and to test them. (See also appendix *x and section *15 of my Postscript.)"
+            '''
+        # Call the search method and get the actual results
+        actual_results_msgs, actual_results = search_instance.search(query, top_results=5)
+        stripped_result_actual = (actual_results_msgs[0].replace(" ", "").replace("\t", "")
+                                  .replace("\n", ""))
+        stripped_expected = (expected_results_msgs.replace(" ", "").replace("\t", "")
+                             .replace("\n", ""))
+        self.assertEqual(expected_results, actual_results)
+        self.assertEqual(stripped_expected, stripped_result_actual)
+
+    def tearDown(self):
+        # Clean up any resources or configurations after testing
+        pass
 
 
 if __name__ == "__main__":
-    test_ebook_search(do_preview=False)
+    # test_ebook_search(do_preview=False)
     # unittest.main()
     pass
