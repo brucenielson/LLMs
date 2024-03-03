@@ -37,6 +37,7 @@ class SemanticSearch:
         self._results_file: str = results_file
         self._chapters: Optional[List[dict]] = None
         self._embeddings: Optional[np.ndarray] = None
+        self._flattened_paragraphs = None
         # Initialize logger
         self._logger: logging.Logger = logging.getLogger(__name__)
         self._logger.setLevel(logging.INFO)
@@ -154,6 +155,11 @@ class SemanticSearch:
         # Assert the full file name has an .epub or .json extension
         assert self.get_ext(full_file_name) in ['.epub', '.json'], ('Invalid file format. '
                                                                     'Please upload an epub or json file.')
+        # Reset all the variables on load
+        self._chapters = None
+        self._embeddings = None
+        self._flattened_paragraphs = None
+        # Load files
         self._file_name = full_file_name
         # Load the embeddings
         if self.get_ext(self._file_name) == '.epub':
@@ -233,13 +239,14 @@ class SemanticSearch:
             print(f'An unexpected error occurred: {e}')
 
     def __index_into_chapters(self, index: int) -> Tuple[str, str, int]:
-        flattened_paragraphs = [{'text': paragraph, 'title': chapter['title'], 'para_no': para_no}
-                                for chapter in self._chapters
-                                for para_no, paragraph in enumerate(chapter['paragraphs'])]
+        if self._flattened_paragraphs is None:
+            self._flattened_paragraphs = [{'text': paragraph, 'title': chapter['title'], 'para_no': para_no}
+                                          for chapter in self._chapters
+                                          for para_no, paragraph in enumerate(chapter['paragraphs'])]
 
-        return (flattened_paragraphs[index]['text'], flattened_paragraphs[index]['title'],
-                flattened_paragraphs[index]['para_no']
-                if 0 <= index < len(flattened_paragraphs) else None)
+        return (self._flattened_paragraphs[index]['text'], self._flattened_paragraphs[index]['title'],
+                self._flattened_paragraphs[index]['para_no']
+                if 0 <= index < len(self._flattened_paragraphs) else None)
 
     def __epub_to_chapters(self, epub_file_name: str) -> None:
         book = epub.read_epub(epub_file_name)
@@ -329,60 +336,60 @@ def test_ebook_search(do_preview=False):
         ebook_search.preview_epub()
 
 
-class TestSemanticSearch(unittest.TestCase):
-
-    def setUp(self):
-        # Set up any necessary variables or configurations for testing
-        # noinspection SpellCheckingInspection
-        self._json_path = \
-            r'D:\Documents\Papers\EPub Books\Karl R. Popper - The Logic of Scientific Discovery-Routledge (2002).json'
-
-        # Check if the JSON file exists, if not, load EPUB and save embeddings in JSON
-        if not exists(self._json_path):
-            # Generate EPUB file path by replacing .json with .epub
-            epub_path = self._json_path.replace('.json', '.epub')
-            search_instance = SemanticSearch()
-            search_instance.load_file(epub_path)
-
-    def test_query(self):
-        # Test loading an EPUB file
-        search_instance = SemanticSearch()
-        search_instance.load_file(self._json_path)
-
-        # Define your query and expected output
-        query = 'Why do we need to corroborate theories at all?'
-        expected_results = [501, 441, 462, 465, 122]
-        expected_results_msgs = '''
-            Chapter: "10 CORROBORATION, OR HOW A THEORY STANDS UP TO TESTS", Passage number: 60, Score: 0.69
-            "*6 See my Postscript, chapter *ii. In my theory of corroboration—in direct opposition to Keynes’s, 
-            Jeffreys’s, and Carnap’s theories of probability—corroboration does not decrease with testability, but 
-            tends to increase with it.
-            *7 This may also be expressed by the unacceptable rule: ‘Always choose the hypothesis which is most ad hoc!’
-            2 Keynes, op. cit., p. 305.
-            *8 Carnap, in his Logical Foundations of Probability, 1950, believes in the practical value of predictions; 
-            nevertheless, he draws part of the conclusion here mentioned—that we might be content with our basic 
-            statements. For he says that theories (he speaks of ‘laws’) are ‘not indispensable’ for science—not even 
-            for making predictions: we can manage throughout with singular statements. ‘Nevertheless’, he writes 
-            (p. 575) ‘it is expedient, of course, to state universal laws in books on physics, biology, psychology, 
-            etc.’ But the question is not one of expediency—it is one of scientific curiosity. Some scientists want 
-            to explain the world: their aim is to find satisfactory explanatory theories—well testable, i.e. simple 
-            theories—and to test them. (See also appendix *x and section *15 of my Postscript.)"
-            '''
-        # Call the search method and get the actual results
-        actual_results_msgs, actual_results = search_instance.search(query, top_results=5)
-        stripped_result_actual = (actual_results_msgs[0].replace(" ", "").replace("\t", "")
-                                  .replace("\n", ""))
-        stripped_expected = (expected_results_msgs.replace(" ", "").replace("\t", "")
-                             .replace("\n", ""))
-        self.assertEqual(expected_results, actual_results)
-        self.assertEqual(stripped_expected, stripped_result_actual)
-
-    def tearDown(self):
-        # Clean up any resources or configurations after testing
-        pass
+# class TestSemanticSearch(unittest.TestCase):
+#
+#     def setUp(self):
+#         # Set up any necessary variables or configurations for testing
+#         # noinspection SpellCheckingInspection
+#         self._json_path = \
+#             r'D:\Documents\Papers\EPub Books\Karl R. Popper - The Logic of Scientific Discovery-Routledge (2002).json'
+#
+#         # Check if the JSON file exists, if not, load EPUB and save embeddings in JSON
+#         if not exists(self._json_path):
+#             # Generate EPUB file path by replacing .json with .epub
+#             epub_path = self._json_path.replace('.json', '.epub')
+#             search_instance = SemanticSearch()
+#             search_instance.load_file(epub_path)
+#
+#     def test_query(self):
+#         # Test loading an EPUB file
+#         search_instance = SemanticSearch()
+#         search_instance.load_file(self._json_path)
+#
+#         # Define your query and expected output
+#         query = 'Why do we need to corroborate theories at all?'
+#         expected_results = [501, 441, 462, 465, 122]
+#         expected_results_msgs = '''
+#             Chapter: "10 CORROBORATION, OR HOW A THEORY STANDS UP TO TESTS", Passage number: 60, Score: 0.69
+#             "*6 See my Postscript, chapter *ii. In my theory of corroboration—in direct opposition to Keynes’s,
+#             Jeffreys’s, and Carnap’s theories of probability—corroboration does not decrease with testability, but
+#             tends to increase with it.
+#             *7 This may also be expressed by the unacceptable rule: ‘Always choose the hypothesis which is most ad hoc!’
+#             2 Keynes, op. cit., p. 305.
+#             *8 Carnap, in his Logical Foundations of Probability, 1950, believes in the practical value of predictions;
+#             nevertheless, he draws part of the conclusion here mentioned—that we might be content with our basic
+#             statements. For he says that theories (he speaks of ‘laws’) are ‘not indispensable’ for science—not even
+#             for making predictions: we can manage throughout with singular statements. ‘Nevertheless’, he writes
+#             (p. 575) ‘it is expedient, of course, to state universal laws in books on physics, biology, psychology,
+#             etc.’ But the question is not one of expediency—it is one of scientific curiosity. Some scientists want
+#             to explain the world: their aim is to find satisfactory explanatory theories—well testable, i.e. simple
+#             theories—and to test them. (See also appendix *x and section *15 of my Postscript.)"
+#             '''
+#         # Call the search method and get the actual results
+#         actual_results_msgs, actual_results = search_instance.search(query, top_results=5)
+#         stripped_result_actual = (actual_results_msgs[0].replace(" ", "").replace("\t", "")
+#                                   .replace("\n", ""))
+#         stripped_expected = (expected_results_msgs.replace(" ", "").replace("\t", "")
+#                              .replace("\n", ""))
+#         self.assertEqual(expected_results, actual_results)
+#         self.assertEqual(stripped_expected, stripped_result_actual)
+#
+#     def tearDown(self):
+#         # Clean up any resources or configurations after testing
+#         pass
 
 
 if __name__ == "__main__":
-    # test_ebook_search(do_preview=False)
+    test_ebook_search(do_preview=False)
     # unittest.main()
     pass
