@@ -11,7 +11,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 import logging
 from typing import List, Optional, Tuple, Union
 from typing import TextIO
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
+import re
 
 
 class SemanticSearch:
@@ -278,16 +279,16 @@ class SemanticSearch:
         # Split the PDF text into paragraphs or chapters based on your logic
         # You might need to adjust this based on the structure of your PDF
         # For simplicity, let's consider each line as a paragraph
-        paragraphs = pdf_text.split('\n')
+        # paragraphs = pdf_text.split('\n')
 
-        # Create chapters based on your requirements
-        # You might want to improve this logic based on your specific use case
-        chapters = [{'title': 'Chapter {}'.format(i + 1), 'paragraphs': [para]} for i, para in enumerate(paragraphs)]
+        # Split the PDF text into paragraphs or chapters based on lines starting with a capital letter
+        # paragraphs = re.split(r'(?<=[.!?])\s+(?=[A-Z])', pdf_text)
+        paragraphs = re.split(r'\n(?=[A-Z])', pdf_text)
+        # Remove any remaining newline characters within each paragraph
+        paragraphs = [re.sub(r'\n', ' ', para) for para in paragraphs]
 
-        self._chapters = chapters
-        if self._do_strip:
-            self.__strip_blank_chapters()
-        self.__format_paragraphs()
+        self._flattened_paragraphs = paragraphs
+        self.__format_flattened_paragraphs()
 
     def __create_embeddings(self, texts: Union[str, List[str]]) -> np.ndarray:
         if isinstance(texts, str):
@@ -330,6 +331,51 @@ class SemanticSearch:
             chapter['paragraphs'] = [para.strip() for para in chapter['paragraphs'] if len(para.strip()) > 0]
             if len(chapter['title']) == 0:
                 chapter['title'] = '(Unnamed) Chapter {no}'.format(no=i + 1)
+
+    def __format_flattened_paragraphs(self) -> None:
+        # Split paragraphs that are too long and merge paragraphs that are too short
+        i = 0
+        while i < len(self._flattened_paragraphs):
+            paragraph = self._flattened_paragraphs[i]
+            words = paragraph.split()
+
+            if len(words) > self._max_words:
+                # Split the paragraph into two
+                # Insert paragraph with max words in place of the old paragraph
+                maxed_paragraph = ' '.join(words[:self._max_words])
+                self._flattened_paragraphs[i] = maxed_paragraph
+
+                # Insert a new paragraph with the remaining words
+                new_paragraph = ' '.join(words[self._max_words:])
+                self._flattened_paragraphs.insert(i + 1, new_paragraph)
+
+            # Merge paragraphs that are too short
+            while len(self._flattened_paragraphs[i].split()) < self._min_words and i + 1 < len(
+                    self._flattened_paragraphs):
+                # This paragraph is too short, so merge it with the next one
+                self._flattened_paragraphs[i] += ' ' + self._flattened_paragraphs[i + 1]
+                # Delete the next paragraph since we just merged it to the previous one
+                del self._flattened_paragraphs[i + 1]
+
+            i += 1
+
+        # After the loop, handle the case where the last paragraph is too short
+        last_index = len(self._flattened_paragraphs) - 1
+        last_para_len = len(self._flattened_paragraphs[last_index].split())
+        prev_para_len = len(self._flattened_paragraphs[last_index - 1].split()) if last_index > 0 else 0
+
+        if last_para_len < self._min_words and last_index > 0 and prev_para_len + last_para_len < self._max_words:
+            # Merge the last paragraph with the previous one
+            self._flattened_paragraphs[last_index - 1] += ' ' + self._flattened_paragraphs[last_index]
+            # Remove the last paragraph since we just merged it to the previous one
+            del self._flattened_paragraphs[last_index]
+
+        # # Remove empty paragraphs and whitespace
+        # self._flattened_paragraphs = [
+        #     {'text': para['text'].strip(), 'title': '', 'para_no': para['para_no']}
+        #     for para in self._flattened_paragraphs
+        #     if len(para['text'].strip()) > 0
+        # ]
 
     def __print_previews(self) -> None:
         for (i, chapter) in enumerate(self._chapters):
