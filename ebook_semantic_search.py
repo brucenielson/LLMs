@@ -196,9 +196,14 @@ class SemanticSearch:
             for i in results:
                 # Convert the index (into a list of flattened paragraphs which is what embeddings is)
                 # into a chapter and paragraph number
-                paragraph, title, paragraph_num = self.__index_into_chapters(i)
-                result_msg = ('\nChapter: "{}", Passage number: {}, Score: {:.2f}\n"{}"'
-                              .format(title, paragraph_num, scores[i], paragraph))
+                paragraph, title, paragraph_num, page_num = self.__index_into_chapters(i)
+                results_msg = ""
+                if page_num is None:
+                    result_msg = ('\nChapter: "{}", Passage number: {}, Score: {:.2f}\n"{}"'
+                                  .format(title, paragraph_num, scores[i], paragraph))
+                else:
+                    result_msg = ('\nPage number: {}, Passage number: {}, Score: {:.2f}\n"{}"'
+                                  .format(page_num, paragraph_num, scores[i], paragraph))
                 results_msgs.append(result_msg)
                 self.print_and_write(result_msg, f)
             self.print_and_write('\n', f)
@@ -223,14 +228,22 @@ class SemanticSearch:
         # Convert the epub to html and extract the paragraphs
         self.__file_to_chapters(epub_file_name)
         print('Generating embeddings for "{}"\n'.format(epub_file_name))
-        paragraphs = [paragraph for chapter in self._chapters for paragraph in chapter['paragraphs']]
+        # Handle epub (chapters) vs pdf (pages only)
+        paragraphs = []
+        text_list = []
+        if self._flattened_paragraphs is None and self._chapters is not None:
+            paragraphs = [paragraph for chapter in self._chapters for paragraph in chapter['paragraphs']]
+            text_list = self._chapters
+        elif self._flattened_paragraphs is not None:
+            paragraphs = [para['text'] for para in self._flattened_paragraphs]
+            text_list = self._flattened_paragraphs
         # Generate the _embeddings using the _model
         self._embeddings = self.__create_embeddings(paragraphs)
         # Save the chapter _embeddings to a json file
         try:
             print('Writing embeddings for "{}"\n'.format(epub_file_name))
             with open(json_file_name, 'w') as f:
-                json.dump({'_chapters': self._chapters, '_embeddings': self._embeddings.tolist()}, f)
+                json.dump({'_chapters': text_list, '_embeddings': self._embeddings.tolist()}, f)
             self._file_name = json_file_name
         except IOError as io_error:
             print(f'Failed to save embeddings to "{json_file_name}": {io_error}')
@@ -239,14 +252,15 @@ class SemanticSearch:
         except Exception as e:
             print(f'An unexpected error occurred: {e}')
 
-    def __index_into_chapters(self, index: int) -> Tuple[str, str, int]:
+    def __index_into_chapters(self, index: int) -> Tuple[str, Optional[str], int, Optional[int]]:
         if self._flattened_paragraphs is None:
-            self._flattened_paragraphs = [{'text': paragraph, 'title': chapter['title'], 'para_no': para_no}
+            self._flattened_paragraphs = [{'text': paragraph, 'title': chapter['title'], 'para_num': para_num,
+                                           'page_num': None}
                                           for chapter in self._chapters
-                                          for para_no, paragraph in enumerate(chapter['paragraphs'])]
+                                          for para_num, paragraph in enumerate(chapter['paragraphs'])]
 
         return (self._flattened_paragraphs[index]['text'], self._flattened_paragraphs[index]['title'],
-                self._flattened_paragraphs[index]['para_no']
+                self._flattened_paragraphs[index]['para_num'], self._flattened_paragraphs[index]['page_num']
                 if 0 <= index < len(self._flattened_paragraphs) else None)
 
     def __file_to_chapters(self, file_path: str) -> None:
@@ -254,7 +268,7 @@ class SemanticSearch:
         if file_ext == '.epub':
             self.__epub_to_chapters(file_path)
         elif file_ext == '.pdf':
-            self.__pdf_to_chapters(file_path)
+            self.__pdf_to_pages(file_path)
         else:
             raise ValueError('Invalid file format. Please upload an epub or pdf file.')
 
@@ -269,26 +283,51 @@ class SemanticSearch:
             self.__strip_blank_chapters()
         self.__format_paragraphs()
 
-    def __pdf_to_chapters(self, pdf_file_path: str) -> None:
-        pdf_text = ""
+    def __pdf_to_pages(self, pdf_file_path: str) -> None:
         with open(pdf_file_path, "rb") as pdf_file:
             pdf_reader = PdfReader(pdf_file)
+            flattened_paragraphs = []
             for page_num in range(len(pdf_reader.pages)):
-                pdf_text += pdf_reader.pages[page_num].extract_text()
+                pdf_page_text_test = pdf_reader.pages[page_num].extract_text()\
+                    .encode('utf-8', 'replace').decode('ascii', 'replace')
 
-        # Split the PDF text into paragraphs or chapters based on your logic
-        # You might need to adjust this based on the structure of your PDF
-        # For simplicity, let's consider each line as a paragraph
-        # paragraphs = pdf_text.split('\n')
+                pdf_page_text = pdf_reader.pages[page_num].extract_text().strip()
+                original_text = pdf_page_text
+                # Replace non-ASCII characters with empty strings
+                # pdf_page_text = re.sub(r'[^\x00-\x7F]+', ' ', pdf_page_text)
+                # pdf_page_text = re.sub(r'[^\x00-\x7F‘’]+', ' ', pdf_page_text)
+                # Replace ligatures with their non-ligature equivalents
+                pdf_page_text = replace_ligatures(pdf_page_text)
+                # Remove hyphen followed by a space after a letter or replace dashes surrounded by characters with a blank
+                pdf_page_text = re.sub(r'(?<=[a-zA-Z])-\s|(?<=[a-zA-Z0-9])-(?=[a-zA-Z0-9])', '', pdf_page_text)
+                # Replace letter followed by a period and then another letter with the same letter, a period, a space, and then the other letter
+                pdf_page_text = re.sub(r'([a-zA-Z])\.([a-zA-Z])', r'\1. \2', pdf_page_text)
+                # Fix single quotes to not have spaces
+                pdf_page_text = re.sub(r'‘ ', '‘', pdf_page_text)
+                pdf_page_text = re.sub(r' ’', '’', pdf_page_text)
+                # Remove spaces before a period
+                pdf_page_text = re.sub(r'\s+\.', '.', pdf_page_text)
+                if pdf_page_text is None or len(pdf_page_text.strip()) == 0:
+                    continue
+                # Get paragraphs on this page
+                page_paragraphs = re.split(r'\n(?=[A-Z0-9])|\n\*', pdf_page_text)
+                # Remove any remaining newline characters within each paragraph
+                page_paragraphs = [re.sub(r'\n', ' ', para) for para in page_paragraphs]
+                # Replace multiple consecutive spaces with a single space
+                page_paragraphs = [re.sub(r'\s+', ' ', para) for para in page_paragraphs]
+                # Create a dict version of the paragraphs with page numbers, etc
+                page_paragraph_dicts = [
+                    {'text': para.strip(), 'chapter': None, 'title': None, 'para_num': para_num + 1,
+                     'page_num': page_num + 1}
+                    for para_num, para in enumerate(page_paragraphs)
+                    if len(para.strip()) > 25
+                ]
+                if len(page_paragraph_dicts) == 0:
+                    continue
+                flattened_paragraphs.extend(page_paragraph_dicts)
 
-        # Split the PDF text into paragraphs or chapters based on lines starting with a capital letter
-        # paragraphs = re.split(r'(?<=[.!?])\s+(?=[A-Z])', pdf_text)
-        paragraphs = re.split(r'\n(?=[A-Z])', pdf_text)
-        # Remove any remaining newline characters within each paragraph
-        paragraphs = [re.sub(r'\n', ' ', para) for para in paragraphs]
+        self._flattened_paragraphs = flattened_paragraphs
 
-        self._flattened_paragraphs = paragraphs
-        self.__format_flattened_paragraphs()
 
     def __create_embeddings(self, texts: Union[str, List[str]]) -> np.ndarray:
         if isinstance(texts, str):
@@ -332,50 +371,54 @@ class SemanticSearch:
             if len(chapter['title']) == 0:
                 chapter['title'] = '(Unnamed) Chapter {no}'.format(no=i + 1)
 
-    def __format_flattened_paragraphs(self) -> None:
+    def __format_flattened_paragraphs(self, paragraphs: list) -> list:
         # Split paragraphs that are too long and merge paragraphs that are too short
         i = 0
-        while i < len(self._flattened_paragraphs):
-            paragraph = self._flattened_paragraphs[i]
+        while i < len(paragraphs):
+            paragraph = paragraphs[i]
             words = paragraph.split()
 
             if len(words) > self._max_words:
                 # Split the paragraph into two
                 # Insert paragraph with max words in place of the old paragraph
                 maxed_paragraph = ' '.join(words[:self._max_words])
-                self._flattened_paragraphs[i] = maxed_paragraph
+                paragraphs[i] = maxed_paragraph
 
                 # Insert a new paragraph with the remaining words
                 new_paragraph = ' '.join(words[self._max_words:])
-                self._flattened_paragraphs.insert(i + 1, new_paragraph)
+                paragraphs.insert(i + 1, new_paragraph)
 
             # Merge paragraphs that are too short
-            while len(self._flattened_paragraphs[i].split()) < self._min_words and i + 1 < len(
-                    self._flattened_paragraphs):
+            while len(paragraphs[i].split()) < self._min_words and i + 1 < len(
+                    paragraphs):
                 # This paragraph is too short, so merge it with the next one
-                self._flattened_paragraphs[i] += ' ' + self._flattened_paragraphs[i + 1]
+                paragraphs[i] += ' ' + paragraphs[i + 1]
                 # Delete the next paragraph since we just merged it to the previous one
-                del self._flattened_paragraphs[i + 1]
+                del paragraphs[i + 1]
 
             i += 1
 
         # After the loop, handle the case where the last paragraph is too short
-        last_index = len(self._flattened_paragraphs) - 1
-        last_para_len = len(self._flattened_paragraphs[last_index].split())
-        prev_para_len = len(self._flattened_paragraphs[last_index - 1].split()) if last_index > 0 else 0
+        last_index = len(paragraphs) - 1
+        last_para_len = len(paragraphs[last_index].split())
+        prev_para_len = len(paragraphs[last_index - 1].split()) if last_index > 0 else 0
 
         if last_para_len < self._min_words and last_index > 0 and prev_para_len + last_para_len < self._max_words:
             # Merge the last paragraph with the previous one
-            self._flattened_paragraphs[last_index - 1] += ' ' + self._flattened_paragraphs[last_index]
+            paragraphs[last_index - 1] += ' ' + paragraphs[last_index]
             # Remove the last paragraph since we just merged it to the previous one
-            del self._flattened_paragraphs[last_index]
+            del paragraphs[last_index]
 
         # # Remove empty paragraphs and whitespace
         # self._flattened_paragraphs = [
-        #     {'text': para['text'].strip(), 'title': '', 'para_no': para['para_no']}
+        #     {'text': para['text'].strip(), 'title': '', 'para_num': para['para_num']}
         #     for para in self._flattened_paragraphs
         #     if len(para['text'].strip()) > 0
         # ]
+
+        self._flattened_paragraphs = [{'text': paragraph, 'title': chapter['title'], 'para_num': para_num}
+                                      for chapter in self._chapters
+                                      for para_num, paragraph in enumerate(chapter['paragraphs'])]
 
     def __print_previews(self) -> None:
         for (i, chapter) in enumerate(self._chapters):
@@ -397,6 +440,218 @@ class SemanticSearch:
         self._chapters = chapters
 
 
+def replace_ligatures(text):
+    # noinspection SpellCheckingInspection
+    ligature_mapping = {
+        '\ufb00': 'ff',
+        '\ufb01': 'fi',
+        '\ufb02': 'fl',
+        '\ufb03': 'ffi',
+        '\ufb04': 'ffl',
+        '\ufb05': 'st',
+        '\ufb06': 'st',
+        '\ufb07': 'ct',
+        '\ufb08': 'st',
+        '\ufb09': 'st',
+        '\ufb0a': 'et',
+        '\ufb13': 'ij',
+        '\ufb15': 'ij',
+        '\ufb1d': 'oe',
+        '\ufb1e': 'oe',
+        '\ufb1f': 'oe',
+        '\ufb20': 'b',
+        '\ufb21': 's',
+        '\ufb22': 'B',
+        '\ufb23': 'P',
+        '\ufb24': 'o',
+        '\ufb25': 'C',
+        '\ufb26': 'c',
+        '\ufb27': 'd',
+        '\ufb28': 'D',
+        '\ufb29': 'e',
+        '\ufb2a': 'e',
+        '\ufb2b': 'e',
+        '\ufb2c': 'e',
+        '\ufb2d': 'j',
+        '\ufb2e': 'g',
+        '\ufb2f': 'G',
+        '\ufb30': 'h',
+        '\ufb31': 'H',
+        '\ufb32': 'i',
+        '\ufb33': 'I',
+        '\ufb34': 'I',
+        '\ufb35': 'l',
+        '\ufb36': 'L',
+        '\ufb38': 'N',
+        '\ufb39': 'n',
+        '\ufb3a': 'O',
+        '\ufb3b': 'O',
+        '\ufb3c': 'O',
+        '\ufb3e': 'r',
+        '\ufb3f': 'r',
+        '\ufb40': 'R',
+        '\ufb41': 'R',
+        '\ufb42': 'R',
+        '\ufb43': 'S',
+        '\ufb44': 's',
+        '\ufb45': 'S',
+        '\ufb46': 's',
+        '\ufb47': 't',
+        '\ufb48': 'T',
+        '\ufb49': 'U',
+        '\ufb4a': 'u',
+        '\ufb4b': 'V',
+        '\ufb4c': 'Y',
+        '\ufb4d': 'y',
+        '\ufb4e': 'W',
+        '\ufb4f': 'w',
+        '\ufb50': 'A',
+        '\ufb51': 'a',
+        '\ufb52': 'B',
+        '\ufb53': 'b',
+        '\ufb54': 'B',
+        '\ufb56': 'e',
+        '\ufb57': 'e',
+        '\ufb58': 'F',
+        '\ufb59': 'f',
+        '\ufb5a': 'G',
+        '\ufb5b': 'g',
+        '\ufb5c': 'H',
+        '\ufb5d': 'h',
+        '\ufb5e': 'I',
+        '\ufb5f': 'i',
+        '\ufb60': 'I',
+        '\ufb62': 'i',
+        '\ufb63': 'j',
+        '\ufb64': 'k',
+        '\ufb65': 'k',
+        '\ufb66': 'l',
+        '\ufb67': 'l',
+        '\ufb68': 'l',
+        '\ufb69': 'l',
+        '\ufb6a': 'N',
+        '\ufb6b': 'n',
+        '\ufb6c': 'O',
+        '\ufb6d': 'O',
+        '\ufb6e': 'o',
+        '\ufb6f': 'o',
+        '\ufb70': 'o',
+        '\ufb71': 'o',
+        '\ufb72': 'o',
+        '\ufb73': 'o',
+        '\ufb74': 'P',
+        '\ufb75': 'p',
+        '\ufb76': 'P',
+        '\ufb77': 'p',
+        '\ufb78': 'R',
+        '\ufb79': 'r',
+        '\ufb7a': 'r',
+        '\ufb7b': 'r',
+        '\ufb7c': 'r',
+        '\ufb7d': 'r',
+        '\ufb7e': 'S',
+        '\ufb7f': 's',
+        '\ufb80': 'S',
+        '\ufb81': 's',
+        '\ufb82': 'S',
+        '\ufb83': 's',
+        '\ufb84': 'S',
+        '\ufb85': 's',
+        '\ufb86': 't',
+        '\ufb87': 't',
+        '\ufb88': 'T',
+        '\ufb89': 't',
+        '\ufb8a': 'T',
+        '\ufb8b': 'U',
+        '\ufb8c': 'u',
+        '\ufb8d': 'U',
+        '\ufb8e': 'u',
+        '\ufb8f': 'u',
+        '\ufb90': 'v',
+        '\ufb91': 'v',
+        '\ufb92': 'w',
+        '\ufb93': 'w',
+        '\ufb94': 'Y',
+        '\ufb95': 'y',
+        '\ufb96': 'Y',
+        '\ufb97': 'A',
+        '\ufb98': 'a',
+        '\ufb99': 'B',
+        '\ufb9a': 'b',
+        '\ufb9b': 'O',
+        '\ufb9c': 'o',
+        '\ufb9d': 'O',
+        '\ufb9e': 'o',
+        '\ufb9f': 'O',
+        '\ufba0': 'o',
+        '\ufba1': 'o',
+        '\ufba2': 'o',
+        '\ufba3': 'o',
+        '\ufba4': 'p',
+        '\ufba5': 't',
+        '\ufba6': 'P',
+        '\ufba7': 'p',
+        '\ufba8': 'p',
+        '\ufba9': 'r',
+        '\ufbaa': 'R',
+        '\ufbab': 'r',
+        '\ufbac': 'r',
+        '\ufbad': 'R',
+        '\ufbae': 'R',
+        '\ufbaf': 'r',
+        '\ufbb0': 'S',
+        '\ufbb1': 's',
+        '\ufbb2': 'S',
+        '\ufbb3': 's',
+        '\ufbb4': 'S',
+        '\ufbb5': 's',
+        '\ufbb6': 'T',
+        '\ufbb7': 't',
+        '\ufbb8': 'T',
+        '\ufbb9': 't',
+        '\ufbba': 'T',
+        '\ufbbb': 't',
+        '\ufbbc': 'T',
+        '\ufbbd': 'U',
+        '\ufbbe': 'u',
+        '\ufbbf': 'U',
+        '\ufbc0': 'u',
+        '\ufbc1': 'U',
+        '\ufbc2': 'u',
+        '\ufbc3': 'V',
+        '\ufbc4': 'v',
+        '\ufbc5': 'V',
+        '\ufbc6': 'v',
+        '\ufbc7': 'W',
+        '\ufbc8': 'w',
+        '\ufbc9': 'W',
+        '\ufbca': 'w',
+        '\ufbcb': 'W',
+        '\ufbcc': 'w',
+        '\ufbcd': 'W',
+        '\ufbce': 'w',
+        '\ufbcf': 'Y',
+        '\ufbd0': 'y',
+        '\ufbd1': 'Y',
+        '\ufbd2': 'y',
+        '\ufbd3': 'Z',
+        '\ufbd4': 'z',
+        '\ufbd5': 'Z',
+        '\ufbd6': 'z',
+        '\ufbd7': 'Z',
+        '\ufbd8': 'z',
+        '\ufbd9': 'Z',
+        '\ufbda': 'z',
+        '\ufbdb': 'Z',
+        '\ufbdc': 'z',
+    }
+
+    for ligature, replacement in ligature_mapping.items():
+        text = text.replace(ligature, replacement)
+
+    return text
+
+
 def test_ebook_search(do_preview=False):
     # noinspection SpellCheckingInspection
     book_path = \
@@ -407,7 +662,6 @@ def test_ebook_search(do_preview=False):
         ebook_search.load_file(book_path)
         query = 'Why do we need to corroborate theories at all?'
         results = ebook_search.search(query, top_results=5)
-        print(results)
     else:
         ebook_search.preview_epub()
 
