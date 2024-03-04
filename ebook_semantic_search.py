@@ -197,7 +197,6 @@ class SemanticSearch:
                 # Convert the index (into a list of flattened paragraphs which is what embeddings is)
                 # into a chapter and paragraph number
                 paragraph, title, paragraph_num, page_num = self.__index_into_chapters(i)
-                results_msg = ""
                 if page_num is None:
                     result_msg = ('\nChapter: "{}", Passage number: {}, Score: {:.2f}\n"{}"'
                                   .format(title, paragraph_num, scores[i], paragraph))
@@ -288,21 +287,21 @@ class SemanticSearch:
             pdf_reader = PdfReader(pdf_file)
             flattened_paragraphs = []
             for page_num in range(len(pdf_reader.pages)):
-                pdf_page_text_test = pdf_reader.pages[page_num].extract_text()\
-                    .encode('utf-8', 'replace').decode('ascii', 'replace')
-
+                # pdf_page_text_test = pdf_reader.pages[page_num].extract_text()\
+                #     .encode('utf-8', 'replace').decode('ascii', 'replace')
                 pdf_page_text = pdf_reader.pages[page_num].extract_text().strip()
-                original_text = pdf_page_text
+                # original_text = pdf_page_text
                 # Replace non-ASCII characters with empty strings
                 # pdf_page_text = re.sub(r'[^\x00-\x7F]+', ' ', pdf_page_text)
                 # pdf_page_text = re.sub(r'[^\x00-\x7F‘’]+', ' ', pdf_page_text)
                 # Replace ligatures with their non-ligature equivalents
                 pdf_page_text = replace_ligatures(pdf_page_text)
-                # Remove hyphen followed by a space after a letter or replace dashes surrounded by characters with a blank
-                pdf_page_text = re.sub(r'(?<=[a-zA-Z])-\s|(?<=[a-zA-Z0-9])-(?=[a-zA-Z0-9])', '', pdf_page_text)
-                # Replace letter followed by a period and then another letter with the same letter, a period, a space, and then the other letter
+                # Remove letter-hyphen-space and letter-hyphen-letter to remove hyphen
+                pdf_page_text = re.sub(r'(?<=[a-zA-Z])-\s|(?<=[a-zA-Z0-9])-(?=[a-zA-Z0-9])',
+                                       '', pdf_page_text)
+                # Replace if there is a missing space after a period, add it
                 pdf_page_text = re.sub(r'([a-zA-Z])\.([a-zA-Z])', r'\1. \2', pdf_page_text)
-                # Fix single quotes to not have spaces
+                # Fix single quotes to not have spaces next to them
                 pdf_page_text = re.sub(r'‘ ', '‘', pdf_page_text)
                 pdf_page_text = re.sub(r' ’', '’', pdf_page_text)
                 # Remove spaces before a period
@@ -327,7 +326,6 @@ class SemanticSearch:
                 flattened_paragraphs.extend(page_paragraph_dicts)
 
         self._flattened_paragraphs = flattened_paragraphs
-
 
     def __create_embeddings(self, texts: Union[str, List[str]]) -> np.ndarray:
         if isinstance(texts, str):
@@ -371,7 +369,7 @@ class SemanticSearch:
             if len(chapter['title']) == 0:
                 chapter['title'] = '(Unnamed) Chapter {no}'.format(no=i + 1)
 
-    def __format_flattened_paragraphs(self, paragraphs: list) -> list:
+    def __format_flattened_paragraphs(self, paragraphs: list) -> None:
         # Split paragraphs that are too long and merge paragraphs that are too short
         i = 0
         while i < len(paragraphs):
@@ -661,7 +659,7 @@ def test_ebook_search(do_preview=False):
     if not do_preview:
         ebook_search.load_file(book_path)
         query = 'Why do we need to corroborate theories at all?'
-        results = ebook_search.search(query, top_results=5)
+        ebook_search.search(query, top_results=5)
     else:
         ebook_search.preview_epub()
 
