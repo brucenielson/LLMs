@@ -3,6 +3,43 @@ import os
 import torch
 from sentence_transformers import SentenceTransformer, util
 from huggingface_hub import login
+import time
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from sentence_transformers import SentenceTransformer, util
+
+
+def generate_tech_support_response(query, model):
+    # Load the embeddings or create and save them if not found
+    embeddings_list = load_apex_embeddings()
+    if embeddings_list is None:
+        data = load_apex_data()
+        embeddings_list = create_and_save_embeddings(data, model)
+
+    # Perform semantic search
+    top_results = semantic_search_top(embeddings_list, query, model, top=3)
+
+    # Summarize the proposed resolutions
+    summarized_cases = "\n\n".join([f"Case Id: {entry['CaseId']}\nProblem: {entry['Problem']}"
+                                          f"\nResolution: {entry['Resolution']}\n\n" for entry in top_results])
+
+    # Generate a tech support response using the language model
+    model_id = "meta-llama/Llama-2-7b-hf"
+    causal_model = AutoModelForCausalLM.from_pretrained(model_id).to("cuda")
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    prompt = (f"As a tech support agent, the customer reports this problem:\n\n{query}\n\n"
+              f"Write a summary of past resolutions to similar problems: \n"
+              f"{summarized_cases}\n\n"
+              f"Summarize your recommendations:\n")
+    input_ids = tokenizer.encode(prompt, return_tensors="pt").to("cuda")
+
+    start_time = time.time()
+    output = causal_model.generate(input_ids, max_length=1000, num_return_sequences=1)
+    end_time = time.time()
+
+    generated_text = tokenizer.decode(output[0], skip_special_tokens=True)
+    print("CUDA execution time (ms):", (end_time - start_time) * 1000)
+    print(generated_text)
+
 
 def load_apex_embeddings():
     # Load D:\Projects\Holley\apex_embeddings.json if it exists
@@ -59,7 +96,7 @@ def create_and_save_embeddings(json_data, model):
 
     return embeddings_list
 
-def semantic_search_top_5(embeddings_list, query, model):
+def semantic_search_top(embeddings_list, query, model, top=5):
     # Load embeddings if not provided
     if embeddings_list is None:
         data = load_apex_data()
@@ -70,25 +107,29 @@ def semantic_search_top_5(embeddings_list, query, model):
     query_embedding = model.encode(query, convert_to_tensor=True).to('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Calculate cosine similarities between query and problems
-    similarities = {
-        entry['CaseId']: {
+    # Calculate cosine similarities between query and problems
+    similarities = [
+        {
+            'Index': i,
+            'CaseId': entry['CaseId'],
             'Similarity': util.pytorch_cos_sim(query_embedding, torch.tensor(entry['Embedding']).to('cuda')).item(),
             'Problem': entry['Problem'],
             'Resolution': entry['Resolution']
         }
-        for entry in embeddings_list
-    }
+        for i, entry in enumerate(embeddings_list)
+    ]
 
     # Get the indices of the top 5 matches
-    top_5_indices = sorted(similarities, key=lambda k: similarities[k]['Similarity'], reverse=True)[:5]
+    top_cases = sorted(similarities, key=lambda k: k['Similarity'], reverse=True)[:top]
+    top_indices = [result['Index'] for result in top_cases]
 
-    # Print the top 5 matches with CaseId, Problem, and Resolution
-    print("Top 5 Matching Resolutions:")
-    for i, case_id in enumerate(top_5_indices, 1):
-        result = similarities[case_id]
-        print(f"{i}. CaseId: {case_id}, \nProblem: {result['Problem']}, \nResolution: {result['Resolution']}\n\n")
+    # Print the top 5 matches with Problem, and Resolution
+    print("Top Matching Resolutions:")
+    for i, index in enumerate(top_indices, 1):
+        result = similarities[index]
+        print(f"{i}. Index: {result['Index']}, \n Case Id: {result['CaseId']}, \nProblem: {result['Problem']}, \nResolution: {result['Resolution']}\n\n")
 
-    return top_5_indices
+    return top_cases
 
 
 def query():
@@ -112,12 +153,8 @@ def query():
         data = load_apex_data()
         embeddings_list = create_and_save_embeddings(data, model)
 
-    # Replace 'Your query goes here' with the actual search query
-    search_query = 'Customer is trying to program the truck for the first time. He is getting an Error code 1006. Customer has never programmed before.'
-    top_5_results = semantic_search_top_5(embeddings_list, search_query, model)
-
-    print("Top 5 Matching Resolutions:")
-    for i, result in enumerate(top_5_results, 1):
-        print(f"{i}. {result}")
+    query_text = 'Customer is trying to program the truck for the first time. He is getting an Error code 1006. Customer has never programmed before.'
+    model = SentenceTransformer('sentence-transformers/multi-qa-mpnet-base-dot-v1')
+    generate_tech_support_response(query_text, model)
 
 query()
