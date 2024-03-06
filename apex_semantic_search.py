@@ -6,6 +6,8 @@ from huggingface_hub import login
 import time
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from sentence_transformers import SentenceTransformer, util
+from google.generativeai import GenerativeModel
+import google.generativeai as genai
 
 
 def generate_tech_support_response(query, model):
@@ -27,9 +29,9 @@ def generate_tech_support_response(query, model):
     causal_model = AutoModelForCausalLM.from_pretrained(model_id).to("cuda")
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     prompt = (f"As a tech support agent, the customer reports this problem:\n\n{query}\n\n"
-              f"Write a summary of past resolutions to similar problems: \n"
+              f"Similar problems in the past: \n"
               f"{summarized_cases}\n\n"
-              f"Summarize your recommendations:\n")
+              f"Write a summary of past resolutions to similar problems:\n")
     input_ids = tokenizer.encode(prompt, return_tensors="pt").to("cuda")
 
     start_time = time.time()
@@ -131,6 +133,40 @@ def semantic_search_top(embeddings_list, query, model, top=5):
 
     return top_cases
 
+def generate_gemini_response(query, top_results):
+    secret_file = r'D:\Projects\Holley\gemini_secret.txt'
+    try:
+        with open(secret_file, 'r') as file:
+            secret_text = file.read()
+    except FileNotFoundError:
+        print(f"The file '{secret_file}' does not exist.")
+        return
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return
+
+    # Configure the Gemini API with your API key
+    GOOGLE_API_KEY = secret_text
+    genai.configure(api_key=GOOGLE_API_KEY)
+
+    # Create a summary of past resolutions to similar problems
+    summarized_cases = "\n\n".join([f"Case Id: {entry['CaseId']}\nProblem: {entry['Problem']}"
+                                    f"\nResolution: {entry['Resolution']}\n\n" for entry in top_results])
+
+    # Define the prompt including similar problems
+    prompt = (f"As a tech support agent, the customer reports this problem:\n\n{query}\n\n"
+              f"Similar problems in the past: \n"
+              f"{summarized_cases}\n\n"
+              f"Suggest possible resolutions based on similar problems:\n")
+
+    # Initialize the Gemini model
+    model = GenerativeModel(model_name="gemini-pro")
+
+    # Generate text using the prompt
+    response = model.generate_content(prompt)
+
+    # Print the generated text
+    print(response.text)
 
 def query():
     # secret_file = r'D:\Projects\Holley\huggingface_secret.txt'
@@ -153,8 +189,14 @@ def query():
         data = load_apex_data()
         embeddings_list = create_and_save_embeddings(data, model)
 
-    query_text = 'Customer is trying to program the truck for the first time. He is getting an Error code 1006. Customer has never programmed before.'
+    # query_text = 'Customer is trying to program the truck for the first time. He is getting an Error code 1006. Customer has never programmed before.'
+    query_text = 'Idle on the truck goes up and down when unit is powered on and off.'
     model = SentenceTransformer('sentence-transformers/multi-qa-mpnet-base-dot-v1')
-    generate_tech_support_response(query_text, model)
+    # generate_tech_support_response(query_text, model)
+    # Perform semantic search
+    top_results = semantic_search_top(embeddings_list, query_text, model, top=5)
+    # Generate Gemini response
+    generate_gemini_response(query_text, top_results)
+
 
 query()
