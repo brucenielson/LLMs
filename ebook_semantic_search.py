@@ -27,6 +27,7 @@ class SemanticSearch:
                  last_chapter: Union[int, float] = math.inf,
                  min_words_per_paragraph: int = 150,
                  max_words_per_paragraph: int = 500,
+                 min_paragraph_filter: int = 0,
                  results_file: str = 'results.txt') -> None:
         self._model: SentenceTransformer = SentenceTransformer(model_name)
         self._file_name: Optional[str] = full_file_name
@@ -34,7 +35,10 @@ class SemanticSearch:
         self._min_chapter_size: int = min_chapter_size
         self._first_chapter: int = first_chapter
         self._last_chapter: Union[int, float] = last_chapter
+        # Minimum words in a paragraph. If less than this, combine with next
         self._min_words: int = min_words_per_paragraph
+        # Minimum words per paragraph. If less, filter out the paragraph (used for pdfs to elmiminate headers, etc.)
+        self._min_paragraph_filter: int = min_paragraph_filter
         self._max_words: int = max_words_per_paragraph
         self._results_file: str = results_file
         self._chapters: Optional[List[dict]] = None
@@ -149,6 +153,14 @@ class SemanticSearch:
     @max_words_per_paragraph.setter
     def max_words_per_paragraph(self, value: int) -> None:
         self._max_words = value
+
+    @property
+    def min_paragraph_filter(self) -> int:
+        return self._min_paragraph_filter
+
+    @min_paragraph_filter.setter
+    def min_paragraph_filter(self, value: int) -> None:
+        self._min_paragraph_filter = value
 
     def load_model(self, model_name: str) -> None:
         self._model = SentenceTransformer(model_name)
@@ -327,7 +339,7 @@ class SemanticSearch:
                     {'text': para.strip(), 'chapter': None, 'title': None, 'para_num': para_num + 1,
                      'page_num': page_num + 1}
                     for para_num, para in enumerate(page_paragraphs)
-                    if len(para.strip()) > 25
+                    if len(para.strip()) > self._min_paragraph_filter
                 ]
                 if len(page_paragraph_dicts) == 0:
                     continue
