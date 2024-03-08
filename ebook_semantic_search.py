@@ -13,6 +13,7 @@ from typing import List, Optional, Tuple, Union
 from typing import TextIO
 from pypdf import PdfReader
 import re
+from utilities import replace_ligatures
 
 
 class SemanticSearch:
@@ -59,7 +60,7 @@ class SemanticSearch:
         print('Loading _embeddings from "{}"'.format(json_path))
         with open(json_path, 'r') as f:
             values = json.load(f)
-        return values['_chapters'], np.array(values['_embeddings'])
+        return values['text_list'], np.array(values['embeddings'])
 
     @staticmethod
     def print_and_write(text: str, f: TextIO) -> None:
@@ -177,7 +178,13 @@ class SemanticSearch:
         # Do we now have embeddings and chapters? If not, load them
         if self._chapters is None or self._embeddings is None:
             # Load the embeddings from the json file
-            self._chapters, self._embeddings = self.read_json(self._file_name)
+            text_list, self._embeddings = self.read_json(self._file_name)
+            if text_list is not None and text_list[0] is not None and text_list[0]['chapter'] is None:
+                # This is a pdf file
+                self._flattened_paragraphs = text_list
+            else:
+                # This is an epub file
+                self._chapters = text_list
 
     def search(self, query: str, top_results: int = 5) -> Tuple[List[str], List[int]]:
         results_msgs: List[str] = []
@@ -242,7 +249,7 @@ class SemanticSearch:
         try:
             print('Writing embeddings for "{}"\n'.format(epub_file_name))
             with open(json_file_name, 'w') as f:
-                json.dump({'_chapters': text_list, '_embeddings': self._embeddings.tolist()}, f)
+                json.dump({'text_list': text_list, 'embeddings': self._embeddings.tolist()}, f)
             self._file_name = json_file_name
         except IOError as io_error:
             print(f'Failed to save embeddings to "{json_file_name}": {io_error}')
@@ -438,223 +445,11 @@ class SemanticSearch:
         self._chapters = chapters
 
 
-def replace_ligatures(text):
-    # noinspection SpellCheckingInspection
-    ligature_mapping = {
-        '\ufb00': 'ff',
-        '\ufb01': 'fi',
-        '\ufb02': 'fl',
-        '\ufb03': 'ffi',
-        '\ufb04': 'ffl',
-        '\ufb05': 'st',
-        '\ufb06': 'st',
-        '\ufb07': 'ct',
-        '\ufb08': 'st',
-        '\ufb09': 'st',
-        '\ufb0a': 'et',
-        '\ufb13': 'ij',
-        '\ufb15': 'ij',
-        '\ufb1d': 'oe',
-        '\ufb1e': 'oe',
-        '\ufb1f': 'oe',
-        '\ufb20': 'b',
-        '\ufb21': 's',
-        '\ufb22': 'B',
-        '\ufb23': 'P',
-        '\ufb24': 'o',
-        '\ufb25': 'C',
-        '\ufb26': 'c',
-        '\ufb27': 'd',
-        '\ufb28': 'D',
-        '\ufb29': 'e',
-        '\ufb2a': 'e',
-        '\ufb2b': 'e',
-        '\ufb2c': 'e',
-        '\ufb2d': 'j',
-        '\ufb2e': 'g',
-        '\ufb2f': 'G',
-        '\ufb30': 'h',
-        '\ufb31': 'H',
-        '\ufb32': 'i',
-        '\ufb33': 'I',
-        '\ufb34': 'I',
-        '\ufb35': 'l',
-        '\ufb36': 'L',
-        '\ufb38': 'N',
-        '\ufb39': 'n',
-        '\ufb3a': 'O',
-        '\ufb3b': 'O',
-        '\ufb3c': 'O',
-        '\ufb3e': 'r',
-        '\ufb3f': 'r',
-        '\ufb40': 'R',
-        '\ufb41': 'R',
-        '\ufb42': 'R',
-        '\ufb43': 'S',
-        '\ufb44': 's',
-        '\ufb45': 'S',
-        '\ufb46': 's',
-        '\ufb47': 't',
-        '\ufb48': 'T',
-        '\ufb49': 'U',
-        '\ufb4a': 'u',
-        '\ufb4b': 'V',
-        '\ufb4c': 'Y',
-        '\ufb4d': 'y',
-        '\ufb4e': 'W',
-        '\ufb4f': 'w',
-        '\ufb50': 'A',
-        '\ufb51': 'a',
-        '\ufb52': 'B',
-        '\ufb53': 'b',
-        '\ufb54': 'B',
-        '\ufb56': 'e',
-        '\ufb57': 'e',
-        '\ufb58': 'F',
-        '\ufb59': 'f',
-        '\ufb5a': 'G',
-        '\ufb5b': 'g',
-        '\ufb5c': 'H',
-        '\ufb5d': 'h',
-        '\ufb5e': 'I',
-        '\ufb5f': 'i',
-        '\ufb60': 'I',
-        '\ufb62': 'i',
-        '\ufb63': 'j',
-        '\ufb64': 'k',
-        '\ufb65': 'k',
-        '\ufb66': 'l',
-        '\ufb67': 'l',
-        '\ufb68': 'l',
-        '\ufb69': 'l',
-        '\ufb6a': 'N',
-        '\ufb6b': 'n',
-        '\ufb6c': 'O',
-        '\ufb6d': 'O',
-        '\ufb6e': 'o',
-        '\ufb6f': 'o',
-        '\ufb70': 'o',
-        '\ufb71': 'o',
-        '\ufb72': 'o',
-        '\ufb73': 'o',
-        '\ufb74': 'P',
-        '\ufb75': 'p',
-        '\ufb76': 'P',
-        '\ufb77': 'p',
-        '\ufb78': 'R',
-        '\ufb79': 'r',
-        '\ufb7a': 'r',
-        '\ufb7b': 'r',
-        '\ufb7c': 'r',
-        '\ufb7d': 'r',
-        '\ufb7e': 'S',
-        '\ufb7f': 's',
-        '\ufb80': 'S',
-        '\ufb81': 's',
-        '\ufb82': 'S',
-        '\ufb83': 's',
-        '\ufb84': 'S',
-        '\ufb85': 's',
-        '\ufb86': 't',
-        '\ufb87': 't',
-        '\ufb88': 'T',
-        '\ufb89': 't',
-        '\ufb8a': 'T',
-        '\ufb8b': 'U',
-        '\ufb8c': 'u',
-        '\ufb8d': 'U',
-        '\ufb8e': 'u',
-        '\ufb8f': 'u',
-        '\ufb90': 'v',
-        '\ufb91': 'v',
-        '\ufb92': 'w',
-        '\ufb93': 'w',
-        '\ufb94': 'Y',
-        '\ufb95': 'y',
-        '\ufb96': 'Y',
-        '\ufb97': 'A',
-        '\ufb98': 'a',
-        '\ufb99': 'B',
-        '\ufb9a': 'b',
-        '\ufb9b': 'O',
-        '\ufb9c': 'o',
-        '\ufb9d': 'O',
-        '\ufb9e': 'o',
-        '\ufb9f': 'O',
-        '\ufba0': 'o',
-        '\ufba1': 'o',
-        '\ufba2': 'o',
-        '\ufba3': 'o',
-        '\ufba4': 'p',
-        '\ufba5': 't',
-        '\ufba6': 'P',
-        '\ufba7': 'p',
-        '\ufba8': 'p',
-        '\ufba9': 'r',
-        '\ufbaa': 'R',
-        '\ufbab': 'r',
-        '\ufbac': 'r',
-        '\ufbad': 'R',
-        '\ufbae': 'R',
-        '\ufbaf': 'r',
-        '\ufbb0': 'S',
-        '\ufbb1': 's',
-        '\ufbb2': 'S',
-        '\ufbb3': 's',
-        '\ufbb4': 'S',
-        '\ufbb5': 's',
-        '\ufbb6': 'T',
-        '\ufbb7': 't',
-        '\ufbb8': 'T',
-        '\ufbb9': 't',
-        '\ufbba': 'T',
-        '\ufbbb': 't',
-        '\ufbbc': 'T',
-        '\ufbbd': 'U',
-        '\ufbbe': 'u',
-        '\ufbbf': 'U',
-        '\ufbc0': 'u',
-        '\ufbc1': 'U',
-        '\ufbc2': 'u',
-        '\ufbc3': 'V',
-        '\ufbc4': 'v',
-        '\ufbc5': 'V',
-        '\ufbc6': 'v',
-        '\ufbc7': 'W',
-        '\ufbc8': 'w',
-        '\ufbc9': 'W',
-        '\ufbca': 'w',
-        '\ufbcb': 'W',
-        '\ufbcc': 'w',
-        '\ufbcd': 'W',
-        '\ufbce': 'w',
-        '\ufbcf': 'Y',
-        '\ufbd0': 'y',
-        '\ufbd1': 'Y',
-        '\ufbd2': 'y',
-        '\ufbd3': 'Z',
-        '\ufbd4': 'z',
-        '\ufbd5': 'Z',
-        '\ufbd6': 'z',
-        '\ufbd7': 'Z',
-        '\ufbd8': 'z',
-        '\ufbd9': 'Z',
-        '\ufbda': 'z',
-        '\ufbdb': 'Z',
-        '\ufbdc': 'z',
-    }
-
-    for ligature, replacement in ligature_mapping.items():
-        text = text.replace(ligature, replacement)
-
-    return text
-
-
 def test_ebook_search(do_preview=False):
     # noinspection SpellCheckingInspection
     book_path = \
-        r'D:\Documents\Papers\EPub Books\Karl Popper - The Logic of Scientific Discovery-Routledge (2002).pdf'
-    # book_path = r"D:\Documents\Papers\EPub Books\KJV.epub"
+        r'D:\Documents\Books\Karl Popper - The Logic of Scientific Discovery-Routledge (2002).pdf'
+    # book_path = r"D:\Documents\Books\KJV.epub"
     ebook_search = SemanticSearch()
     if not do_preview:
         ebook_search.load_file(book_path)
