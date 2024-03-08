@@ -9,7 +9,7 @@ class TestSemanticSearch(unittest.TestCase):
         # Set up any necessary variables or configurations for testing
         # noinspection SpellCheckingInspection
         self._json_path = \
-            r'D:\Documents\Papers\EPub Books\Karl R. Popper - The Logic of Scientific Discovery-Routledge (2002).json'
+            r'D:\Documents\Books\Karl R. Popper - The Logic of Scientific Discovery-Routledge (2002).json'
 
         # Delete the existing json file if it exists
         if exists(self._json_path):

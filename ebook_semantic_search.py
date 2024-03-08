@@ -179,12 +179,13 @@ class SemanticSearch:
         if self._chapters is None or self._embeddings is None:
             # Load the embeddings from the json file
             text_list, self._embeddings = self.read_json(self._file_name)
-            if text_list is not None and text_list[0] is not None and text_list[0]['chapter'] is None:
-                # This is a pdf file
-                self._flattened_paragraphs = text_list
-            else:
-                # This is an epub file
-                self._chapters = text_list
+            if text_list and isinstance(text_list[0], dict):
+                if 'chapter' in text_list[0] and text_list[0].get('chapter') is None:
+                    # This is a pdf file
+                    self._flattened_paragraphs = text_list
+                else:
+                    # This is an epub file
+                    self._chapters = text_list
 
     def search(self, query: str, top_results: int = 5) -> Tuple[List[str], List[int]]:
         results_msgs: List[str] = []
