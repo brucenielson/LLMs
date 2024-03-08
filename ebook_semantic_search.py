@@ -219,6 +219,9 @@ class SemanticSearch:
         scores = self.fast_cosine_similarity(query_embedding, self._embeddings)
         # Grab the top results
         results = np.argsort(scores)[::-1][:top_results].tolist()
+        # Convert the index (into a list of flattened paragraphs which is what embeddings is)
+        if self._flattened_text is None and self._chapters is not None:
+            self.__chapters_to_flat_text()
         # Write out the results using the with statement to ensure proper file closure
         with open(self._results_file, 'a') as f:
             file_msg = 'File: "{}"'.format(self._file_name)
@@ -226,9 +229,8 @@ class SemanticSearch:
             query_msg = 'Query: "{}"'.format(query)
             self.print_and_write(query_msg, f)
             for i in results:
-                # Convert the index (into a list of flattened paragraphs which is what embeddings is)
                 # into a chapter and paragraph number
-                paragraph, title, paragraph_num, page_num = self.__index_into_chapters(i)
+                paragraph, title, paragraph_num, page_num = self.__index_into_text(i)
                 if page_num is None:
                     result_msg = ('\nChapter: "{}", Passage number: {}, Score: {:.2f}\n"{}"'
                                   .format(title, paragraph_num, scores[i], paragraph))
@@ -283,12 +285,15 @@ class SemanticSearch:
         except Exception as e:
             print(f'An unexpected error occurred: {e}')
 
-    def __index_into_chapters(self, index: int) -> Tuple[str, Optional[str], int, Optional[int]]:
+    def __chapters_to_flat_text(self):
+        self._flattened_text = [{'text': paragraph, 'title': chapter['title'], 'para_num': para_num,
+                                 'page_num': None}
+                                for chapter in self._chapters
+                                for para_num, paragraph in enumerate(chapter['paragraphs'])]
+
+    def __index_into_text(self, index: int) -> Tuple[str, Optional[str], int, Optional[int]]:
         if self._flattened_text is None:
-            self._flattened_text = [{'text': paragraph, 'title': chapter['title'], 'para_num': para_num,
-                                           'page_num': None}
-                                    for chapter in self._chapters
-                                    for para_num, paragraph in enumerate(chapter['paragraphs'])]
+            self.__chapters_to_flat_text()
 
         return (self._flattened_text[index]['text'], self._flattened_text[index]['title'],
                 self._flattened_text[index]['para_num'], self._flattened_text[index]['page_num']
