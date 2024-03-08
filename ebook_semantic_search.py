@@ -22,31 +22,40 @@ class SemanticSearch:
                  full_file_name: Optional[str] = None,
                  model_name: str = 'sentence-transformers/multi-qa-mpnet-base-dot-v1',
                  do_strip: bool = True,
-                 min_chapter_size: int = 2000,
-                 first_chapter: int = 0,
-                 last_chapter: Union[int, float] = math.inf,
+                 epub_min_chapter_size: int = 2000,
+                 epub_first_chapter: int = 0,
+                 epub_last_chapter: Union[int, float] = math.inf,
+                 pdf_min_character_filter: int = 25,
+                 by_page: bool = False,
                  min_words_per_paragraph: int = 150,
                  max_words_per_paragraph: int = 500,
-                 min_character_filter: int = 25,
                  results_file: str = 'results.txt') -> None:
         self._model: SentenceTransformer = SentenceTransformer(model_name)
         self._file_name: Optional[str] = full_file_name
         self._do_strip: bool = do_strip
-        self._min_chapter_size: int = min_chapter_size
-        self._first_chapter: int = first_chapter
-        self._last_chapter: Union[int, float] = last_chapter
+
+        # Epub settings
+        self._min_chapter_size: int = epub_min_chapter_size
+        self._first_chapter: int = epub_first_chapter
+        self._last_chapter: Union[int, float] = epub_last_chapter
+
+        # Pdf settings
+        # Minimum characters per paragraph. If less, filter out the paragraph (for pdfs to elmiminate headers, etc.)
+        self._min_character_filter: int = pdf_min_character_filter
+
+        # Page vs Paragraph settings (applies to PDF and EPUB)
+        self._by_page: bool = by_page
         # Minimum words in a paragraph. If less than this, combine with next
         self._min_words: int = min_words_per_paragraph
-        # Minimum characters per paragraph. If less, filter out the paragraph (for pdfs to elmiminate headers, etc.)
-        self._min_character_filter: int = min_character_filter
         self._max_words: int = max_words_per_paragraph
+
+        # Working variables
         self._results_file: str = results_file
+        # Epub specific
         self._chapters: Optional[List[dict]] = None
+        # Used by both epub and pdf
         self._embeddings: Optional[np.ndarray] = None
-        self._flattened_paragraphs = None
-        # Initialize logger
-        self._logger: logging.Logger = logging.getLogger(__name__)
-        self._logger.setLevel(logging.INFO)
+        self._flattened_text = None
 
         if full_file_name is not None:
             self.load_file(full_file_name)
@@ -172,7 +181,7 @@ class SemanticSearch:
         # Reset all the variables on load
         self._chapters = None
         self._embeddings = None
-        self._flattened_paragraphs = None
+        self._flattened_text = None
         # Load files
         self._file_name = full_file_name
         # Load the embeddings
@@ -194,10 +203,13 @@ class SemanticSearch:
             if text_list and isinstance(text_list[0], dict):
                 if 'chapter' in text_list[0] and text_list[0].get('chapter') is None:
                     # This is a pdf file
-                    self._flattened_paragraphs = text_list
+                    self._flattened_text = text_list
                 else:
                     # This is an epub file
                     self._chapters = text_list
+            else:
+                # This should never happen
+                raise ValueError('Invalid json file. Please upload a valid json file.')
 
     def search(self, query: str, top_results: int = 5) -> Tuple[List[str], List[int]]:
         results_msgs: List[str] = []
@@ -231,36 +243,36 @@ class SemanticSearch:
     def preview_epub(self) -> None:
         epub_file_name = self._file_name
         assert self.get_ext(epub_file_name) == '.epub', 'Invalid file format. Please upload an epub file.'
-        self.__file_to_chapters(epub_file_name)
+        self.__book_file_to_text_list(epub_file_name)
         self.__print_previews()
 
-    def __embed_file(self, epub_file_name: str) -> None:
+    def __embed_file(self, book_file_name: str) -> None:
         # Assert this is an epub file
-        assert self.get_ext(epub_file_name) in ['.epub', '.pdf'], 'Invalid file format. Please upload an epub file.'
+        assert self.get_ext(book_file_name) in ['.epub', '.pdf'], 'Invalid file format. Please upload an epub file.'
         # Create a json file with the same name as the epub
-        json_file_name = self.switch_ext(epub_file_name, '.json')
+        json_file_name = self.switch_ext(book_file_name, '.json')
         # Delete any existing json file with the same name
         if exists(json_file_name):
             os.remove(json_file_name)
         # Create the json file name
-        json_file_name = self.switch_ext(epub_file_name, '.json')
+        json_file_name = self.switch_ext(book_file_name, '.json')
         # Convert the epub to html and extract the paragraphs
-        self.__file_to_chapters(epub_file_name)
-        print('Generating embeddings for "{}"\n'.format(epub_file_name))
+        self.__book_file_to_text_list(book_file_name)
+        print('Generating embeddings for "{}"\n'.format(book_file_name))
         # Handle epub (chapters) vs pdf (pages only)
         paragraphs = []
         text_list = []
-        if self._flattened_paragraphs is None and self._chapters is not None:
+        if self._flattened_text is None and self._chapters is not None:
             paragraphs = [paragraph for chapter in self._chapters for paragraph in chapter['paragraphs']]
             text_list = self._chapters
-        elif self._flattened_paragraphs is not None:
-            paragraphs = [para['text'] for para in self._flattened_paragraphs]
-            text_list = self._flattened_paragraphs
+        elif self._flattened_text is not None:
+            paragraphs = [para['text'] for para in self._flattened_text]
+            text_list = self._flattened_text
         # Generate the _embeddings using the _model
         self._embeddings = self.__create_embeddings(paragraphs)
         # Save the chapter _embeddings to a json file
         try:
-            print('Writing embeddings for "{}"\n'.format(epub_file_name))
+            print('Writing embeddings for "{}"\n'.format(book_file_name))
             with open(json_file_name, 'w') as f:
                 json.dump({'text_list': text_list, 'embeddings': self._embeddings.tolist()}, f)
             self._file_name = json_file_name
@@ -272,17 +284,17 @@ class SemanticSearch:
             print(f'An unexpected error occurred: {e}')
 
     def __index_into_chapters(self, index: int) -> Tuple[str, Optional[str], int, Optional[int]]:
-        if self._flattened_paragraphs is None:
-            self._flattened_paragraphs = [{'text': paragraph, 'title': chapter['title'], 'para_num': para_num,
+        if self._flattened_text is None:
+            self._flattened_text = [{'text': paragraph, 'title': chapter['title'], 'para_num': para_num,
                                            'page_num': None}
-                                          for chapter in self._chapters
-                                          for para_num, paragraph in enumerate(chapter['paragraphs'])]
+                                    for chapter in self._chapters
+                                    for para_num, paragraph in enumerate(chapter['paragraphs'])]
 
-        return (self._flattened_paragraphs[index]['text'], self._flattened_paragraphs[index]['title'],
-                self._flattened_paragraphs[index]['para_num'], self._flattened_paragraphs[index]['page_num']
-                if 0 <= index < len(self._flattened_paragraphs) else None)
+        return (self._flattened_text[index]['text'], self._flattened_text[index]['title'],
+                self._flattened_text[index]['para_num'], self._flattened_text[index]['page_num']
+                if 0 <= index < len(self._flattened_text) else None)
 
-    def __file_to_chapters(self, file_path: str) -> None:
+    def __book_file_to_text_list(self, file_path: str) -> None:
         file_ext = self.get_ext(file_path)
         if file_ext == '.epub':
             self.__epub_to_chapters(file_path)
@@ -328,6 +340,10 @@ class SemanticSearch:
                 pdf_page_text = re.sub(r'\s+\.', '.', pdf_page_text)
                 if pdf_page_text is None or len(pdf_page_text.strip()) == 0:
                     continue
+
+                # Will we store by paragraph or by page?
+
+
                 # Get paragraphs on this page
                 page_paragraphs = re.split(r'\n(?=[A-Z0-9])|\n\*', pdf_page_text)
                 # Remove any remaining newline characters within each paragraph
@@ -345,7 +361,7 @@ class SemanticSearch:
                     continue
                 flattened_paragraphs.extend(page_paragraph_dicts)
 
-        self._flattened_paragraphs = flattened_paragraphs
+        self._flattened_text = flattened_paragraphs
 
     def __create_embeddings(self, texts: Union[str, List[str]]) -> np.ndarray:
         if isinstance(texts, str):
@@ -389,55 +405,6 @@ class SemanticSearch:
             if len(chapter['title']) == 0:
                 chapter['title'] = '(Unnamed) Chapter {no}'.format(no=i + 1)
 
-    def __format_flattened_paragraphs(self, paragraphs: list) -> None:
-        # Split paragraphs that are too long and merge paragraphs that are too short
-        i = 0
-        while i < len(paragraphs):
-            paragraph = paragraphs[i]
-            words = paragraph.split()
-
-            if len(words) > self._max_words:
-                # Split the paragraph into two
-                # Insert paragraph with max words in place of the old paragraph
-                maxed_paragraph = ' '.join(words[:self._max_words])
-                paragraphs[i] = maxed_paragraph
-
-                # Insert a new paragraph with the remaining words
-                new_paragraph = ' '.join(words[self._max_words:])
-                paragraphs.insert(i + 1, new_paragraph)
-
-            # Merge paragraphs that are too short
-            while len(paragraphs[i].split()) < self._min_words and i + 1 < len(
-                    paragraphs):
-                # This paragraph is too short, so merge it with the next one
-                paragraphs[i] += ' ' + paragraphs[i + 1]
-                # Delete the next paragraph since we just merged it to the previous one
-                del paragraphs[i + 1]
-
-            i += 1
-
-        # After the loop, handle the case where the last paragraph is too short
-        last_index = len(paragraphs) - 1
-        last_para_len = len(paragraphs[last_index].split())
-        prev_para_len = len(paragraphs[last_index - 1].split()) if last_index > 0 else 0
-
-        if last_para_len < self._min_words and last_index > 0 and prev_para_len + last_para_len < self._max_words:
-            # Merge the last paragraph with the previous one
-            paragraphs[last_index - 1] += ' ' + paragraphs[last_index]
-            # Remove the last paragraph since we just merged it to the previous one
-            del paragraphs[last_index]
-
-        # # Remove empty paragraphs and whitespace
-        # self._flattened_paragraphs = [
-        #     {'text': para['text'].strip(), 'title': '', 'para_num': para['para_num']}
-        #     for para in self._flattened_paragraphs
-        #     if len(para['text'].strip()) > 0
-        # ]
-
-        self._flattened_paragraphs = [{'text': paragraph, 'title': chapter['title'], 'para_num': para_num}
-                                      for chapter in self._chapters
-                                      for para_num, paragraph in enumerate(chapter['paragraphs'])]
-
     def __print_previews(self) -> None:
         for (i, chapter) in enumerate(self._chapters):
             title = chapter['title']
@@ -448,7 +415,7 @@ class SemanticSearch:
             print(preview)
 
     def __strip_blank_chapters(self) -> None:
-        # This takes a list of _chapters and removes the ones outside the range [first_chapter, last_chapter]
+        # This takes a list of _chapters and removes the ones outside the range [epub_first_chapter, epub_last_chapter]
         # or if the chapter is too small (likely a title page or something)
         last_chapter = min(self._last_chapter, len(self._chapters) - 1)
         chapters = self._chapters[self._first_chapter:last_chapter + 1]
