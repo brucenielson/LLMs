@@ -26,9 +26,9 @@ class SemanticSearch:
                  epub_last_chapter: Union[int, float] = math.inf,
                  pdf_min_character_filter: int = 25,
                  by_paragraph: bool = True,
-                 combine_paragraphs: bool = False,
+                 combine_paragraphs: bool = True,
                  page_offset: int = 0,
-                 min_words_per_paragraph: int = 150,
+                 min_words_per_paragraph: int = 100,
                  max_words_per_paragraph: int = 500,
                  results_file: str = 'output.txt') -> None:
         self._model: SentenceTransformer = SentenceTransformer(model_name)
@@ -325,7 +325,8 @@ class SemanticSearch:
         self._chapters = chapters
         if self._do_strip:
             self.__strip_blank_chapters()
-        self.__format_chapter_paragraphs()
+        if self._combine_paragraphs:
+            self.__format_chapter_paragraphs()
 
     def __pdf_to_pages(self, pdf_file_path: str) -> None:
         with open(pdf_file_path, "rb") as pdf_file:
@@ -494,8 +495,10 @@ class SemanticSearch:
 
 def test_ebook_search(do_preview=False):
     # noinspection SpellCheckingInspection
+    # book_path = \
+    #     r'D:\Documents\Books\Karl Popper - The Logic of Scientific Discovery-Routledge (2002)(pdf).pdf'
     book_path = \
-        r'D:\Documents\Books\Karl Popper - The Logic of Scientific Discovery-Routledge (2002)(pdf).pdf'
+        r'D:\Documents\Books\Karl Popper - The Logic of Scientific Discovery-Routledge (2002)(epub).epub'
     # book_path = r"D:\Documents\Books\KJV.epub"
     ebook_search = SemanticSearch(by_paragraph=True, combine_paragraphs=True, page_offset=23)
     if not do_preview:
