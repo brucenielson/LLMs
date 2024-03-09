@@ -75,7 +75,7 @@ class TestPdfSemanticSearch(unittest.TestCase):
         query = 'Why do we need to corroborate theories at all?'
         expected_results = [1785, 1791, 746, 1921, 1896]
         expected_results_msgs = '''
-             Page number: 271, Passage number: 4, Score: 0.76
+             Page number: 271, Passage number: 1785, Score: 0.76
              "Theories are not veri fiable, but they can be ‘corroborated’."
             '''
         # Call the search method and get the actual results

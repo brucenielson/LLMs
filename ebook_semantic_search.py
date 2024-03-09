@@ -26,6 +26,8 @@ class SemanticSearch:
                  epub_last_chapter: Union[int, float] = math.inf,
                  pdf_min_character_filter: int = 25,
                  by_paragraph: bool = True,
+                 combine_paragraphs: bool = False,
+                 page_offset: int = 0,
                  min_words_per_paragraph: int = 150,
                  max_words_per_paragraph: int = 500,
                  results_file: str = 'output.txt') -> None:
@@ -44,6 +46,8 @@ class SemanticSearch:
 
         # Page vs Paragraph settings (applies to PDF and EPUB)
         self._by_paragraph: bool = by_paragraph
+        self._combine_paragraphs: bool = combine_paragraphs
+        self._page_offset: int = page_offset
         # Minimum words in a paragraph. If less than this, combine with next
         self._min_words: int = min_words_per_paragraph
         self._max_words: int = max_words_per_paragraph
@@ -236,7 +240,7 @@ class SemanticSearch:
                                   .format(title, paragraph_num, scores[i], paragraph))
                 else:
                     result_msg = ('\nPage number: {}, Passage number: {}, Score: {:.2f}\n"{}"'
-                                  .format(page_num, paragraph_num, scores[i], paragraph))
+                                  .format(page_num - self._page_offset, paragraph_num, scores[i], paragraph))
                 results_msgs.append(result_msg)
                 self.print_and_write(result_msg, f)
             self.print_and_write('\n', f)
@@ -308,8 +312,7 @@ class SemanticSearch:
             if self._by_paragraph:
                 self.__pages_to_paragraphs()
             else:
-                self._flattened_text = [{'text': page, 'title': None, 'para_num': None, 'page_num': para_num + 1}
-                                        for para_num, page in enumerate(self._pages)]
+                self.__cleanup_pages()
         else:
             raise ValueError('Invalid file format. Please upload an epub or pdf file.')
 
@@ -322,7 +325,7 @@ class SemanticSearch:
         self._chapters = chapters
         if self._do_strip:
             self.__strip_blank_chapters()
-        self.__format_paragraphs()
+        self.__format_chapter_paragraphs()
 
     def __pdf_to_pages(self, pdf_file_path: str) -> None:
         with open(pdf_file_path, "rb") as pdf_file:
@@ -353,27 +356,45 @@ class SemanticSearch:
                 pages.append(pdf_page_text)
             self._pages = pages
 
-    def __pages_to_paragraphs(self) -> None:
+    def __cleanup_pages(self) -> None:
         # Will we store by paragraph or by page?
-        flattened_paragraphs = []
+        pages = []
         for page_num, page in enumerate(self._pages):
-            # Get paragraphs on this page
+            # Remove any remaining newline characters within each page
+            page = re.sub(r'\n', ' ', page)
+            # Replace multiple consecutive spaces with a single space
+            page = re.sub(r'\s+', ' ', page)
+            pages.append(page)
+        self._pages = pages
+        self._flattened_text = [{'text': page, 'chapter': None, 'title': None,
+                                 'para_num': None, 'page_num': page_num}
+                                for page_num, page in enumerate(self._pages) if len(page.strip()) > 0]
+
+    def __pages_to_paragraphs(self) -> None:
+        # Will we store by paragraph or by paragraph?
+        paragraphs = []
+        for page_num, page in enumerate(self._pages):
+            # Get paragraphs on this paragraph
             page_paragraphs = re.split(r'\n(?=[A-Z0-9])|\n\*', page)
             # Remove any remaining newline characters within each paragraph
             page_paragraphs = [re.sub(r'\n', ' ', para) for para in page_paragraphs]
             # Replace multiple consecutive spaces with a single space
             page_paragraphs = [re.sub(r'\s+', ' ', para) for para in page_paragraphs]
-            # Create a dict version of the paragraphs with page numbers, etc
+            # Create a dict version of the paragraphs with paragraph numbers, etc
             page_paragraph_dicts = [
-                {'text': para.strip(), 'chapter': None, 'title': None, 'para_num': para_num + 1,
-                 'page_num': page_num + 1}
+                {'text': para.strip(), 'para_num': para_num + 1, 'page_num': page_num + 1}
                 for para_num, para in enumerate(page_paragraphs)
                 if len(para.strip()) > self._min_character_filter
             ]
             if len(page_paragraph_dicts) == 0:
                 continue
-            flattened_paragraphs.extend(page_paragraph_dicts)
-        self._flattened_text = flattened_paragraphs
+            paragraphs.extend(page_paragraph_dicts)
+        if self._combine_paragraphs:
+            self.__format_page_paragraphs(paragraphs)
+        # Create flattened text
+        self._flattened_text = [{'text': paragraph['text'], 'chapter': None, 'title': None,
+                                 'para_num': para_num, 'page_num': paragraph['page_num']}
+                                for para_num, paragraph in enumerate(paragraphs) if len(paragraph['text'].strip()) > 0]
 
     def __create_embeddings(self, texts: Union[str, List[str]]) -> np.ndarray:
         if isinstance(texts, str):
@@ -381,7 +402,7 @@ class SemanticSearch:
         texts = [text.replace("\n", " ") for text in texts]
         return self._model.encode(texts)
 
-    def __format_paragraphs(self) -> None:
+    def __format_chapter_paragraphs(self) -> None:
         # Split paragraphs that are too long and merge paragraphs that are too short
         for i, chapter in enumerate(self._chapters):
             for j, paragraph in enumerate(chapter['paragraphs']):
@@ -417,6 +438,40 @@ class SemanticSearch:
             if len(chapter['title']) == 0:
                 chapter['title'] = '(Unnamed) Chapter {no}'.format(no=i + 1)
 
+    def __format_page_paragraphs(self, paragraphs) -> List:
+        # Split paragraphs that are too long and merge paragraphs that are too short
+        for i, paragraph in enumerate(paragraphs):
+            words = paragraph['text'].split()
+            if len(words) > self._max_words:
+                # Split the paragraph into two
+                # Insert paragraph with max words in place of the old paragraph
+                maxed_paragraph = ' '.join(words[:self._max_words])
+                paragraphs[i] = maxed_paragraph
+                # Insert a new paragraph with the remaining words
+                new_paragraph = ' '.join(words[self._max_words:])
+                paragraphs.insert(i + 1, new_paragraph)
+
+            # Merge paragraphs that are too short
+            while len(paragraphs[i]['text'].split()) < self._min_words and i + 1 < len(paragraphs):
+                # This paragraph is too short, so merge it with the next one
+                paragraphs[i]['text'] += '\n' + paragraphs[i + 1]['text']
+                # Delete the next paragraph since we just merged it to the previous one
+                del paragraphs[i + 1]
+
+        # After the loop, handle the case where the last paragraph is too short
+        last_index = len(paragraphs) - 1
+        last_para_len = len(paragraphs[last_index]['text'].split())
+        prev_para_len = len(paragraphs[last_index - 1]['text'].split()) if last_index > 0 else 0
+        if last_para_len < self._min_words and last_index > 0 and prev_para_len + last_para_len < self._max_words:
+            # Merge the last paragraph with the previous one
+            paragraphs[last_index - 1]['text'] += '\n ' + paragraphs[last_index]['text']
+            # Remove the last paragraph since we just merged it to the previous one
+            del paragraphs[last_index]
+
+        # Remove empty paragraphs and whitespace
+        paragraphs = [para for para in paragraphs if len(para['text'].strip()) > 0]
+        return paragraphs
+
     def __print_previews(self) -> None:
         for (i, chapter) in enumerate(self._chapters):
             title = chapter['title']
@@ -442,7 +497,7 @@ def test_ebook_search(do_preview=False):
     book_path = \
         r'D:\Documents\Books\Karl Popper - The Logic of Scientific Discovery-Routledge (2002)(pdf).pdf'
     # book_path = r"D:\Documents\Books\KJV.epub"
-    ebook_search = SemanticSearch()
+    ebook_search = SemanticSearch(by_paragraph=True, combine_paragraphs=True, page_offset=23)
     if not do_preview:
         ebook_search.load_file(book_path)
         query = 'Why do we need to corroborate theories at all?'
