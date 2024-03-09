@@ -8,7 +8,6 @@ import numpy as np
 import math
 import os
 from sklearn.metrics.pairwise import cosine_similarity
-import logging
 from typing import List, Optional, Tuple, Union
 from typing import TextIO
 from pypdf import PdfReader
@@ -56,6 +55,7 @@ class SemanticSearch:
         # Used by both epub and pdf
         self._embeddings: Optional[np.ndarray] = None
         self._flattened_text = None
+        self._pages = None
 
         if full_file_name is not None:
             self.load_file(full_file_name)
@@ -305,6 +305,7 @@ class SemanticSearch:
             self.__epub_to_chapters(file_path)
         elif file_ext == '.pdf':
             self.__pdf_to_pages(file_path)
+            self.__pages_to_paragraphs()
         else:
             raise ValueError('Invalid file format. Please upload an epub or pdf file.')
 
@@ -322,7 +323,7 @@ class SemanticSearch:
     def __pdf_to_pages(self, pdf_file_path: str) -> None:
         with open(pdf_file_path, "rb") as pdf_file:
             pdf_reader = PdfReader(pdf_file)
-            flattened_paragraphs = []
+            pages = []
             for page_num in range(len(pdf_reader.pages)):
                 # pdf_page_text_test = pdf_reader.pages[page_num].extract_text()\
                 #     .encode('utf-8', 'replace').decode('ascii', 'replace')
@@ -345,27 +346,29 @@ class SemanticSearch:
                 pdf_page_text = re.sub(r'\s+\.', '.', pdf_page_text)
                 if pdf_page_text is None or len(pdf_page_text.strip()) == 0:
                     continue
+                pages.append(pdf_page_text)
+            self._pages = pages
 
-                # Will we store by paragraph or by page?
-
-
-                # Get paragraphs on this page
-                page_paragraphs = re.split(r'\n(?=[A-Z0-9])|\n\*', pdf_page_text)
-                # Remove any remaining newline characters within each paragraph
-                page_paragraphs = [re.sub(r'\n', ' ', para) for para in page_paragraphs]
-                # Replace multiple consecutive spaces with a single space
-                page_paragraphs = [re.sub(r'\s+', ' ', para) for para in page_paragraphs]
-                # Create a dict version of the paragraphs with page numbers, etc
-                page_paragraph_dicts = [
-                    {'text': para.strip(), 'chapter': None, 'title': None, 'para_num': para_num + 1,
-                     'page_num': page_num + 1}
-                    for para_num, para in enumerate(page_paragraphs)
-                    if len(para.strip()) > self._min_character_filter
-                ]
-                if len(page_paragraph_dicts) == 0:
-                    continue
-                flattened_paragraphs.extend(page_paragraph_dicts)
-
+    def __pages_to_paragraphs(self) -> None:
+        # Will we store by paragraph or by page?
+        flattened_paragraphs = []
+        for page_num, page in enumerate(self._pages):
+            # Get paragraphs on this page
+            page_paragraphs = re.split(r'\n(?=[A-Z0-9])|\n\*', page)
+            # Remove any remaining newline characters within each paragraph
+            page_paragraphs = [re.sub(r'\n', ' ', para) for para in page_paragraphs]
+            # Replace multiple consecutive spaces with a single space
+            page_paragraphs = [re.sub(r'\s+', ' ', para) for para in page_paragraphs]
+            # Create a dict version of the paragraphs with page numbers, etc
+            page_paragraph_dicts = [
+                {'text': para.strip(), 'chapter': None, 'title': None, 'para_num': para_num + 1,
+                 'page_num': page_num + 1}
+                for para_num, para in enumerate(page_paragraphs)
+                if len(para.strip()) > self._min_character_filter
+            ]
+            if len(page_paragraph_dicts) == 0:
+                continue
+            flattened_paragraphs.extend(page_paragraph_dicts)
         self._flattened_text = flattened_paragraphs
 
     def __create_embeddings(self, texts: Union[str, List[str]]) -> np.ndarray:
