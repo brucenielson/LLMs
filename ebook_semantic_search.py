@@ -25,10 +25,10 @@ class SemanticSearch:
                  epub_first_chapter: int = 0,
                  epub_last_chapter: Union[int, float] = math.inf,
                  pdf_min_character_filter: int = 25,
-                 by_page: bool = False,
+                 by_paragraph: bool = True,
                  min_words_per_paragraph: int = 150,
                  max_words_per_paragraph: int = 500,
-                 results_file: str = 'results.txt') -> None:
+                 results_file: str = 'output.txt') -> None:
         self._model: SentenceTransformer = SentenceTransformer(model_name)
         self._file_name: Optional[str] = full_file_name
         self._do_strip: bool = do_strip
@@ -43,7 +43,7 @@ class SemanticSearch:
         self._min_character_filter: int = pdf_min_character_filter
 
         # Page vs Paragraph settings (applies to PDF and EPUB)
-        self._by_page: bool = by_page
+        self._by_paragraph: bool = by_paragraph
         # Minimum words in a paragraph. If less than this, combine with next
         self._min_words: int = min_words_per_paragraph
         self._max_words: int = max_words_per_paragraph
@@ -305,7 +305,11 @@ class SemanticSearch:
             self.__epub_to_chapters(file_path)
         elif file_ext == '.pdf':
             self.__pdf_to_pages(file_path)
-            self.__pages_to_paragraphs()
+            if self._by_paragraph:
+                self.__pages_to_paragraphs()
+            else:
+                self._flattened_text = [{'text': page, 'title': None, 'para_num': None, 'page_num': para_num + 1}
+                                        for para_num, page in enumerate(self._pages)]
         else:
             raise ValueError('Invalid file format. Please upload an epub or pdf file.')
 
@@ -436,7 +440,7 @@ class SemanticSearch:
 def test_ebook_search(do_preview=False):
     # noinspection SpellCheckingInspection
     book_path = \
-        r'D:\Documents\Books\Karl Popper - The Logic of Scientific Discovery-Routledge (2002).pdf'
+        r'D:\Documents\Books\Karl Popper - The Logic of Scientific Discovery-Routledge (2002)(pdf).pdf'
     # book_path = r"D:\Documents\Books\KJV.epub"
     ebook_search = SemanticSearch()
     if not do_preview:

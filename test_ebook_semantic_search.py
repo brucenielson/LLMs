@@ -3,31 +3,22 @@ import ebook_semantic_search as ess
 from os.path import exists
 
 
-class TestSemanticSearch(unittest.TestCase):
-
+class TestEpubSemanticSearch(unittest.TestCase):
     def setUp(self):
+        self._instance = ess.SemanticSearch()
         # Set up any necessary variables or configurations for testing
         # noinspection SpellCheckingInspection
-        self._json_path = \
-            r'D:\Documents\Books\Karl R. Popper - The Logic of Scientific Discovery-Routledge (2002).json'
+        self._book_path = \
+            r'D:\Documents\Books\Karl Popper - The Logic of Scientific Discovery-Routledge (2002)(epub).epub'
+        self._json_path = self._instance.switch_ext(self._book_path, '.json')
 
         # Delete the existing json file if it exists
         if exists(self._json_path):
             import os
             os.remove(self._json_path)
+        self._instance.load_file(self._book_path)
 
-        # Check if the JSON file exists, if not, load EPUB and save embeddings in JSON
-        if not exists(self._json_path):
-            # Generate EPUB file path by replacing .json with .epub
-            epub_path = self._json_path.replace('.json', '.epub')
-            search_instance = ess.SemanticSearch()
-            search_instance.load_file(epub_path)
-
-    def test_query(self):
-        # Test loading an EPUB file
-        search_instance = ess.SemanticSearch()
-        search_instance.load_file(self._json_path)
-
+    def test_epub(self):
         # Define your query and expected output
         query = 'Why do we need to corroborate theories at all?'
         expected_results = [501, 441, 462, 465, 122]
@@ -48,7 +39,7 @@ class TestSemanticSearch(unittest.TestCase):
             theories—and to test them. (See also appendix *x and section *15 of my Postscript.)"
             '''
         # Call the search method and get the actual results
-        actual_results_msgs, actual_results = search_instance.search(query, top_results=5)
+        actual_results_msgs, actual_results = self._instance.search(query, top_results=5)
         stripped_result_actual = (actual_results_msgs[0].replace(" ", "").replace("\t", "")
                                   .replace("\n", ""))
         stripped_expected = (expected_results_msgs.replace(" ", "").replace("\t", "")
@@ -57,5 +48,48 @@ class TestSemanticSearch(unittest.TestCase):
         self.assertEqual(stripped_expected, stripped_result_actual)
 
     def tearDown(self):
-        # Clean up any resources or configurations after testing
-        pass
+        # Delete the existing json file if it exists
+        if exists(self._json_path):
+            import os
+            os.remove(self._json_path)
+
+
+class TestPdfSemanticSearch(unittest.TestCase):
+    def setUp(self):
+        self._instance = ess.SemanticSearch()
+        # Set up any necessary variables or configurations for testing
+        # noinspection SpellCheckingInspection
+        self._book_path = \
+            r'D:\Documents\Books\Karl Popper - The Logic of Scientific Discovery-Routledge (2002)(pdf).pdf'
+        self._json_path = self._instance.switch_ext(self._book_path, '.json')
+
+        # Delete the existing json file if it exists
+        if exists(self._json_path):
+            import os
+            os.remove(self._json_path)
+        self._instance.load_file(self._book_path)
+        super().setUp()
+
+    def test_pdf(self):
+        # Define your query and expected output
+        query = 'Why do we need to corroborate theories at all?'
+        expected_results = [1785, 1791, 746, 1921, 1896]
+        expected_results_msgs = '''
+             Page number: 271, Passage number: 4, Score: 0.76
+             "Theories are not veri fiable, but they can be ‘corroborated’."
+            '''
+        # Call the search method and get the actual results
+        actual_results_msgs, actual_results = self._instance.search(query, top_results=5)
+        stripped_result_actual = (actual_results_msgs[0].replace(" ", "").replace("\t", "")
+                                  .replace("\n", ""))
+        stripped_expected = (expected_results_msgs.replace(" ", "").replace("\t", "")
+                             .replace("\n", ""))
+        self.assertEqual(expected_results, actual_results)
+        self.assertEqual(stripped_expected, stripped_result_actual)
+
+    def tearDown(self):
+        # Delete the existing json file if it exists
+        if exists(self._json_path):
+            import os
+            os.remove(self._json_path)
+        super().tearDown()
