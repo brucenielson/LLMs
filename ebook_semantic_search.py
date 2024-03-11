@@ -342,6 +342,8 @@ class SemanticSearch:
                 # pdf_page_text = re.sub(r'[^\x00-\x7F‘’]+', ' ', pdf_page_text)
                 # Replace ligatures with their non-ligature equivalents
                 pdf_page_text = replace_ligatures(pdf_page_text)
+                # Convert to unicode
+                pdf_page_text = pdf_page_text.encode('utf-8', ' ').decode('utf-8', ' ')  # .decode('ascii', 'replace')
                 # Remove letter-hyphen-space and letter-hyphen-letter to remove hyphen
                 pdf_page_text = re.sub(r'(?<=[a-zA-Z])-\s|(?<=[a-zA-Z0-9])-(?=[a-zA-Z0-9])',
                                        '', pdf_page_text)
@@ -461,13 +463,14 @@ class SemanticSearch:
 
         # After the loop, handle the case where the last paragraph is too short
         last_index = len(paragraphs) - 1
-        last_para_len = len(paragraphs[last_index]['text'].split())
-        prev_para_len = len(paragraphs[last_index - 1]['text'].split()) if last_index > 0 else 0
-        if last_para_len < self._min_words and last_index > 0 and prev_para_len + last_para_len < self._max_words:
-            # Merge the last paragraph with the previous one
-            paragraphs[last_index - 1]['text'] += '\n ' + paragraphs[last_index]['text']
-            # Remove the last paragraph since we just merged it to the previous one
-            del paragraphs[last_index]
+        if last_index > -1:
+            last_para_len = len(paragraphs[last_index]['text'].split())
+            prev_para_len = len(paragraphs[last_index - 1]['text'].split()) if last_index > 0 else 0
+            if last_para_len < self._min_words and last_index > 0 and prev_para_len + last_para_len < self._max_words:
+                # Merge the last paragraph with the previous one
+                paragraphs[last_index - 1]['text'] += '\n ' + paragraphs[last_index]['text']
+                # Remove the last paragraph since we just merged it to the previous one
+                del paragraphs[last_index]
 
         # Remove empty paragraphs and whitespace
         paragraphs = [para for para in paragraphs if len(para['text'].strip()) > 0]

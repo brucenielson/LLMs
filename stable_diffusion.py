@@ -77,5 +77,4 @@ prompts_to_process = [
     # Add more prompts as needed
 ]
 
-# Run continuously
 setup_pipeline(prompts_to_process)
