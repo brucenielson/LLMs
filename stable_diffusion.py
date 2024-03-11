@@ -20,10 +20,10 @@ def setup_pipeline(prompts):
     }
 
     accelerator = Accelerator()
-    pipe = DiffusionPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0", **common_params)
     device = accelerator.device  # "cuda" if torch.cuda.is_available() else "cpu"
-    pipe = pipe.to(device)
-
+    pipe = DiffusionPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0",
+                                             device=device,
+                                             **common_params)
     refiner = None
     if use_refiner:
         refiner_params = {
@@ -33,7 +33,7 @@ def setup_pipeline(prompts):
         }
         refiner = DiffusionPipeline.from_pretrained("stabilityai/stable-diffusion-xl-refiner-1.0", **refiner_params)
         refiner = refiner.to(device)
-        # pipe.enable_model_cpu_offload()
+        pipe.enable_model_cpu_offload()
     else:
         pipe = pipe.to(device)
 
@@ -49,7 +49,6 @@ def setup_pipeline(prompts):
             "generator": torch.Generator(device).manual_seed(seed),
         }
 
-        pipe = pipe.to(device)
         images = pipe(**pipeline_params).images
 
         if use_refiner:
@@ -67,7 +66,6 @@ def setup_pipeline(prompts):
             timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
             image_path = os.path.join(output_dir, f"output_{timestamp}_{i}.jpg")
             print(f"Saving image to {image_path}")
-            image = image.to("cpu")
             image.save(image_path)
 
         print(f"Image complete. {prompt}")
@@ -75,11 +73,9 @@ def setup_pipeline(prompts):
 
 # List of prompts to be processed
 prompts_to_process = [
-    'Superman saves the day',
-
+    "Superman to the rescue."
     # Add more prompts as needed
 ]
 
 # Run continuously
-while True:
-    setup_pipeline(prompts_to_process)
+setup_pipeline(prompts_to_process)
