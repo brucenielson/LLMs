@@ -127,17 +127,17 @@ def try_peft2():
     # See https://pytorch.org/blog/finetune-llms/
     # https://github.com/facebookresearch/llama?fbclid=IwAR3k8LPltMZmsRUnId-Oi5ZzLZf7JjdZjvsT5OyK0rV5y15HHW92ZSEhlXg
     # Read huggingface secret from this file: D:\Documents\Papers\EPub Books\huggingface_secret.txt
-    secret_file = r'D:\Projects\Holley\huggingface_secret.txt'
-    try:
-        with open(secret_file, 'r') as file:
-            secret_text = file.read()
-            print(secret_text)
-    except FileNotFoundError:
-        print(f"The file '{secret_file}' does not exist.")
-    except Exception as e:
-        print(f"An error occurred: {e}")
-
-    login(secret_text)
+    # secret_file = r'D:\Projects\Holley\huggingface_secret.txt'
+    # try:
+    #     with open(secret_file, 'r') as file:
+    #         secret_text = file.read()
+    #         print(secret_text)
+    # except FileNotFoundError:
+    #     print(f"The file '{secret_file}' does not exist.")
+    # except Exception as e:
+    #     print(f"An error occurred: {e}")
+    #
+    # login(secret_text)
     # Load the 7b llama _model
     model_id = "meta-llama/Llama-2-7b-hf"
 

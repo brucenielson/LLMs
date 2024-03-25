@@ -262,7 +262,7 @@ def test_peft2():
 
 if __name__ == "__main__":
     # test_sentiment_analysis()
-    # test_computer_vision()
+    test_computer_vision()
     # test_download_model()
     # test_llama_cpp()
     # test_llama_cpp_chat_completion()
@@ -272,7 +272,7 @@ if __name__ == "__main__":
     # test_download_transformer()
     # test_load_in_bit()
     # test_llama_2()
-    test_peft()
+    # test_peft()
     # test_peft2()
     print("All tests passed!")
 
