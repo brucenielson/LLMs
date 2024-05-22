@@ -166,16 +166,34 @@ def print_trainable_parameters(model):
     )
 
 
+def do_login():
+    secret_file = r'D:\Documents\Secrets\huggingface_secret.txt'
+    try:
+        with open(secret_file, 'r') as file:
+            secret_text = file.read()
+            print(secret_text)
+    except FileNotFoundError:
+        print(f"The file '{secret_file}' does not exist.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+    login(secret_text)
+
+
 def test_llama_2():
-    model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-2-7b-hf")
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-hf")
-    prompt = "Once upon a time, there was a brave knight who"
-    input_ids = tokenizer.encode(prompt, return_tensors="pt")
-    # Generate text
-    output = model.generate(input_ids, max_length=1024, num_return_sequences=1)
-    # Decode the generated tokens back to text
-    generated_text = tokenizer.decode(output[0], skip_special_tokens=True)
-    print(generated_text)
+    #do_login()
+    try:
+        model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-2-7b-hf")
+        tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-hf")
+        prompt = "Once upon a time, there was a brave knight who"
+        input_ids = tokenizer.encode(prompt, return_tensors="pt")
+        # Generate text
+        output = model.generate(input_ids, max_length=1024, num_return_sequences=1)
+        # Decode the generated tokens back to text
+        generated_text = tokenizer.decode(output[0], skip_special_tokens=True)
+        print(generated_text)
+    except Exception as e:
+        print(f"An error occurred: {e}")
 
 
 def test_gpt2():
@@ -262,7 +280,7 @@ def test_peft2():
 
 if __name__ == "__main__":
     # test_sentiment_analysis()
-    test_computer_vision()
+    # test_computer_vision()
     # test_download_model()
     # test_llama_cpp()
     # test_llama_cpp_chat_completion()
@@ -271,7 +289,7 @@ if __name__ == "__main__":
     # Failed
     # test_download_transformer()
     # test_load_in_bit()
-    # test_llama_2()
+    test_llama_2()
     # test_peft()
     # test_peft2()
     print("All tests passed!")
