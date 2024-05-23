@@ -24,7 +24,7 @@ def load_documents(file_path):
                 }
             )
             documents.append(doc)
-        return documents[0:100]
+        return documents
 
 
 def load_and_print_first_entry(file_path):
@@ -75,7 +75,8 @@ document_store = initialize_database(r'D:\Projects\Holley\apex_data.json')
 documents = document_store.filter_documents()
 print(documents[0])
 pipeline = create_haystack_pipeline(document_store)
-query = "Superman stole my bike"
+query = ('Customer is trying to program the truck for the first time. He is getting an Error code 1006. '
+         'Customer has never programmed before.')
 result = pipeline.run({"text_embedder": {"text": query}})
 documents = result['retriever']['documents']
 for doc in documents:
