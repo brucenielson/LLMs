@@ -4,6 +4,7 @@ import json
 # from haystack.document_stores import DuplicatePolicy
 from haystack import Document, Pipeline
 from haystack.components.embedders import SentenceTransformersTextEmbedder, SentenceTransformersDocumentEmbedder
+from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
 
 # import os
 
@@ -49,19 +50,37 @@ def initialize_database(file_path):
         table_name="haystack_docs",
         embedding_dimension=768,
         vector_function="cosine_similarity",
-        recreate_table=True,
+        recreate_table=False,
         search_strategy="hnsw",
         hnsw_recreate_index_if_exists=True
     )
-    # Load the database from the json if not already loaded
-    docs = load_documents(file_path)
-    # Document database now initialized - embed database if necessary
-    docs_with_embeddings = create_embeddings(docs)
-    ds.write_documents(docs_with_embeddings['documents'])
+    if ds.count_documents() == 0:
+        # Load the database from the json if not already loaded
+        docs = load_documents(file_path)
+        # Document database now initialized - embed database if necessary
+        docs_with_embeddings = create_embeddings(docs)
+        ds.write_documents(docs_with_embeddings['documents'])
     return ds
+
+
+def create_haystack_pipeline(ds):
+    query_pipeline = Pipeline()
+    query_pipeline.add_component("text_embedder", SentenceTransformersTextEmbedder())
+    query_pipeline.add_component("retriever", PgvectorEmbeddingRetriever(document_store=ds))
+    query_pipeline.connect("text_embedder.embedding", "retriever.query_embedding")
+    return query_pipeline
 
 
 document_store = initialize_database(r'D:\Projects\Holley\apex_data.json')
 documents = document_store.filter_documents()
 print(documents[0])
+pipeline = create_haystack_pipeline(document_store)
+query = "Superman stole my bike"
+result = pipeline.run({"text_embedder": {"text": query}})
+documents = result['retriever']['documents']
+for doc in documents:
+    print(doc.content)
+    print(doc.meta['Resolution'])
+    print()
+
 # load_and_print_first_entry(r"D:\Projects\Holley\apex_data.json")
