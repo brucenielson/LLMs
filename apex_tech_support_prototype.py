@@ -11,6 +11,29 @@ import textwrap
 
 # import os
 
+# Useful links (use for blog posts)
+# https://haystack.deepset.ai/integrations/pgvector-documentstore
+# https://github.com/pgvector/pgvector
+# https://www.youtube.com/watch?v=Ff3tJ4pJEa4
+# https://learn.microsoft.com/en-us/cpp/build/building-on-the-command-line?view=msvc-170#download-and-install-the-tools
+# https://www.timescale.com/blog/how-to-install-psql-on-mac-ubuntu-debian-windows/
+# https://minervadb.xyz/installing-and-configuring-pgvector-in-postgresql/
+# https://phoenixnap.com/kb/install-postgresql-windows
+# https://stackoverflow.com/questions/40183108/python-packages-hash-not-matching-whilst-installing-using-pip
+
+# https://haystack.deepset.ai/integrations/pgvector-documentstore
+# https://docs.haystack.deepset.ai/v2.0/docs/pgvectordocumentstore
+# https://docs.haystack.deepset.ai/v2.0/docs/pgvectorembeddingretriever
+# https://docs.haystack.deepset.ai/v2.0/docs/sentencetransformersdocumentembedder
+
+#
+# Doesn't work https://haystack.deepset.ai/tutorials/06_better_retrieval_via_embedding_retrieval
+# from haystack.nodes import EmbeddingRetriever
+# https://www.datastax.com/guides/hierarchical-navigable-small-worlds
+# https://www.analyticsvidhya.com/blog/2023/10/introduction-to-hnsw-hierarchical-navigable-small-world/
+
+# Docker
+# https://docs.docker.com/desktop/install/windows-install/
 
 def load_documents(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
