@@ -163,7 +163,9 @@ def menu(document_store):
 
 
 def setup():
+    print("Starting database...")
     document_store = initialize_database(r'D:\Projects\Holley\apex_data.json')
+    print("Database initialized!")
     menu(document_store)
 
 
