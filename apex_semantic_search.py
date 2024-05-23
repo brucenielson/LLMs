@@ -140,7 +140,7 @@ def semantic_search_top(embeddings_list, query_text, model, top=5):
     return top_cases
 
 
-def generate_gemini_response(query_text, top_results):
+def generate_gemini_response(query_text, top_results_issues, top_results_manual=None):
     secret_file = r'D:\Projects\Holley\gemini_secret.txt'
     try:
         with open(secret_file, 'r') as file:
@@ -158,7 +158,16 @@ def generate_gemini_response(query_text, top_results):
 
     # Create a summary of past resolutions to similar problems
     summarized_cases = "\n\n".join([f"Case Id: {entry['CaseId']}\nProblem: {entry['Problem']}"
-                                    f"\nResolution: {entry['Resolution']}\n\n" for entry in top_results])
+                                    f"\nResolution: {entry['Resolution']}\n\n" for entry in top_results_issues])
+
+    if top_results_manual:
+        summarized_manual = "\n".join([f"{entry}" for entry in top_results_manual])
+        manual_prompt = (
+            f"Here is what is found in the users guide:\n"
+            f"{summarized_manual}\n\n"
+        )
+    else:
+        manual_prompt = None
 
     # Define the prompt including similar problems
     prompt = (f"The customer reports this problem:\n\n{query_text}\n\n"
@@ -178,11 +187,13 @@ def generate_gemini_response(query_text, top_results):
     print("\n\n")
 
     prompt = (f"The customer reports this problem:\n\n{query_text}\n\n"
+              f"{manual_prompt}\n\n"
               f"Similar problems in the past:\n"
               f"{summarized_cases}\n\n"
               f"Suggest your top 2 to 5 possible resolutions based on similar problems. "
-              f"Reference Case Ids in parentheses next to each recommendation. You may reference more than one "
-              f"case id in a proposed resolution if they are the similar resolutions.\n")
+              f"Reference Case Ids and/or page of the user's manual in parentheses next to each recommendation. "
+              f"You may reference more than one case id (or page of user's manual) in a proposed resolution if they "
+              f"are similar resolutions.\n")
     # Generate text using the prompt
     response = model.generate_content(prompt)
     # Print the generated text
@@ -191,6 +202,7 @@ def generate_gemini_response(query_text, top_results):
     print("\n\n")
 
     prompt = (f"The customer reports this problem:\n\n{query_text}\n\n"
+              f"{manual_prompt}\n\n"
               f"Similar problems in the past:\n"
               f"{summarized_cases}\n\n"
               f"What do you recommend as a resolution? Answer in prose form explaining your thinking "
@@ -203,7 +215,7 @@ def generate_gemini_response(query_text, top_results):
     print("\n\n")
 
 
-def query(query_text, model, embeddings_list):
+def query(query_text, model, embeddings_list, ebook):
     # secret_file = r'D:\Projects\Holley\huggingface_secret.txt'
     # try:
     #     with open(secret_file, 'r') as file:
@@ -228,17 +240,18 @@ def query(query_text, model, embeddings_list):
 
     start_time = time.time()
     # query_text = 'Customer gets an error code when trying to do custom tunes on his truck'
-    top_results = semantic_search_top(embeddings_list, query_text, model, top=5)
+    top_results_prob = semantic_search_top(embeddings_list, query_text, model, top=5)
+    top_results_manual, results = ebook.search(query_text, top_results=2)
     # Generate Gemini response
-    generate_gemini_response(query_text, top_results)
+    generate_gemini_response(query_text, top_results_prob, top_results_manual)
     # print("Total Time 1: " + str(time.time() - start_time))
 
     # start_time = time.time()
     # query_text = 'Customer says that his engine on his diesel truck is less powerful after it has been tuned'
     # #model = SentenceTransformer('sentence-transformers/multi-qa-mpnet-base-dot-v1')
-    # top_results = semantic_search_top(embeddings_list, query_text, model, top=5)
+    # top_results_prob = semantic_search_top(embeddings_list, query_text, model, top=5)
     # # Generate Gemini response
-    # generate_gemini_response(query_text, top_results)
+    # generate_gemini_response(query_text, top_results_prob)
     # print("Total Time 2: " + str(time.time() - start_time))
 
 
@@ -252,14 +265,14 @@ def loop_ebooks(ebook):
             ebook.search(query_text, top_results=5)
 
 
-def loop_queries(model, embeddings_list):
+def loop_queries(model, embeddings_list, ebook):
     loop = True
     while loop:
         query_text = input("\n\nEnter customer's reported problem: ")
         if query_text.lower() == 'exit':
             loop = False
         else:
-            query(query_text, model, embeddings_list)
+            query(query_text, model, embeddings_list, ebook)
 
 
 def menu(model, embeddings_list, ebook):
@@ -269,7 +282,7 @@ def menu(model, embeddings_list, ebook):
         print("2. Search Manual\n")
         option = input("\n\nSelect Option: ")
         if option == "1":
-            loop_queries(model, embeddings_list)
+            loop_queries(model, embeddings_list, ebook)
         elif option == "2":
             loop_ebooks(ebook)
 
