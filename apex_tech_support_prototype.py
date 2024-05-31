@@ -35,6 +35,11 @@ import textwrap
 # Docker
 # https://docs.docker.com/desktop/install/windows-install/
 
+# Crew AI
+# https://www.crewai.com/
+# https://x.com/akshay_pachaar/status/1793620669122617776
+
+
 def load_documents(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
         # Read the entire JSON file
