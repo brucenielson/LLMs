@@ -1,16 +1,3 @@
-from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
-# from haystack import Document
-import json
-# from haystack.document_stores import DuplicatePolicy
-from haystack import Document, Pipeline
-from haystack.components.embedders import SentenceTransformersTextEmbedder, SentenceTransformersDocumentEmbedder
-from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
-from google.generativeai import GenerativeModel
-import google.generativeai as genai
-import textwrap
-
-# import os
-
 # Useful links (use for blog posts)
 # https://haystack.deepset.ai/integrations/pgvector-documentstore
 # https://github.com/pgvector/pgvector
@@ -40,6 +27,34 @@ import textwrap
 # https://x.com/akshay_pachaar/status/1793620669122617776
 
 
+# https://medium.com/@cesarescalia/guide-haystack-deepset-qa-from-a-pdf-d3f83d76d9d2
+# https://docs.haystack.deepset.ai/v1.15/docs/file_converters
+# https://pymupdf.readthedocs.io/en/latest/
+# https://pdfminersix.readthedocs.io/en/latest/
+
+from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
+# from haystack import Document
+import json
+# from haystack.document_stores import DuplicatePolicy
+from haystack import Document, Pipeline
+from haystack.components.embedders import SentenceTransformersTextEmbedder, SentenceTransformersDocumentEmbedder
+from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
+from google.generativeai import GenerativeModel
+import google.generativeai as genai
+import textwrap
+# Example of Haystack document that doesn't work!
+# https://docs.haystack.deepset.ai/v1.15/docs/file_converters
+# from haystack.nodes import PDFToTextConverter
+from haystack.components.converters.pdfminer import PDFMinerToDocument
+from datetime import datetime
+from haystack.document_stores.in_memory import InMemoryDocumentStore
+from haystack.components.preprocessors import DocumentCleaner
+from haystack.components.preprocessors import DocumentSplitter
+
+import re
+# import os
+
+
 def load_documents(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
         # Read the entire JSON file
@@ -51,7 +66,8 @@ def load_documents(file_path):
                 meta={
                     "CaseId": entry["CaseId"],
                     "CreationDateTime": entry["CreationDateTime"],
-                    "Resolution": entry["Resolution"]
+                    "Resolution": entry["Resolution"],
+                    "Source": 'Apex'
                 }
             )
             documents.append(doc)
@@ -65,19 +81,23 @@ def create_embeddings(documents):
     return documents_with_embeddings
 
 
-def initialize_database(file_path):
+def initialize_database(file_path, recreate_table=False):
     # Initialize the PgvectorDocumentStore
     ds = PgvectorDocumentStore(
         table_name="haystack_docs",
         embedding_dimension=768,
         vector_function="cosine_similarity",
-        recreate_table=False,
+        recreate_table=recreate_table,
         search_strategy="hnsw",
         hnsw_recreate_index_if_exists=True
     )
     if ds.count_documents() == 0:
-        # Load the database from the json if not already loaded
-        docs = load_documents(file_path)
+        docs = []
+        # Load the data from the Apex json
+        apex_docs = load_documents(file_path)
+        # Load the data from the User Guide
+        user_guide = parse_pdf("85200_a.pdf", "CS/CTS User Guide")
+        docs = apex_docs + user_guide
         # Document database now initialized - embed database if necessary
         docs_with_embeddings = create_embeddings(docs)
         ds.write_documents(docs_with_embeddings['documents'])
@@ -92,7 +112,7 @@ def create_haystack_pipeline(ds):
     return query_pipeline
 
 
-def generate_gemini_response(query_text, top_results_issues):
+def generate_gemini_response(query_text, top_results):
     secret_file = r'D:\Projects\Holley\gemini_secret.txt'
     try:
         with open(secret_file, 'r') as file:
@@ -109,42 +129,49 @@ def generate_gemini_response(query_text, top_results_issues):
     genai.configure(api_key=key)
 
     # Create a summary of past resolutions to similar problems
+    top_results_apex = [row for row in top_results if row['Source'] == 'Apex'][:5]
     summarized_cases = "\n\n".join([f"Case Id: {entry['CaseId']}\nProblem: {entry['Problem']}"
-                                    f"\nResolution: {entry['Resolution']}\n\n" for entry in top_results_issues])
+                                    f"\nResolution: {entry['Resolution']}\n\n" for entry in top_results_apex])
 
-    # if top_results_manual:
-    #     summarized_manual = "\n".join([f"{entry}" for entry in top_results_manual])
-    #     manual_prompt = (
-    #         f"Here is what is found in the users guide:\n"
-    #         f"{summarized_manual}\n\n"
-    #     )
-    # else:
-    #     manual_prompt = None
+    # Create manual text summary
+    top_results_manual = [row for row in top_results if row['Source'] == 'PDF'][:2]
+    manual_text = "\n\n".join([f"Source: {entry['Source Name']}\n\n{entry['Content']}" for entry in top_results_manual])
 
-    # Define the prompt including similar problems
-    prompt = (f"The customer reports this problem:\n\n{query_text}\n\n"
-              f"Similar cases:\n"
-              f"{summarized_cases}\n\n"
-              f"Summarize in bullet points the similar cases and their problems and resolutions, "
-              f"referencing them by Case Id:\n")
+    if manual_text:
+        manual_prompt = (
+            f"Relevant Documentation:\n"
+            f"(State 'Source' for anything used in your response.)"
+            f"{manual_text}\n\n"
+        )
+    else:
+        manual_prompt = None
 
     # Initialize the Gemini model
     model = GenerativeModel(model_name="gemini-pro")
 
-    # Generate text using the prompt
-    response = model.generate_content(prompt)
-    # Print the generated text
-    print("\n\n")
-    print(response.text)
-    print("\n\n")
+    if summarized_cases != "":
+        # Define the prompt including similar problems
+        prompt = (f"The customer reports this problem:\n\n{query_text}\n\n"
+                  f"Similar cases:\n"
+                  f"{summarized_cases}\n\n"
+                  f"Summarize in bullet points the similar cases and their problems and resolutions, "
+                  f"referencing them by Case Id:\n")
+
+        # Generate text using the prompt
+        response = model.generate_content(prompt)
+        # Print the generated text
+        print("\n\n")
+        print(response.text)
+        print("\n\n")
 
     prompt = (f"The customer reports this problem:\n\n{query_text}\n\n"
-              # f"{manual_prompt}\n\n"
+              f"{manual_prompt}\n\n"
               f"Similar problems in the past:\n"
               f"{summarized_cases}\n\n"
               f"Suggest your top 2 to 5 possible resolutions based on similar problems. "
-              f"Reference Case Ids and/or page of the user's manual in parentheses next to each recommendation. "
-              f"You may reference more than one case id (or page of user's manual) in a proposed resolution if they "
+              f"Give a reference for each suggestion (either Case Ids or the manual 'Source' referenced) "
+              f"in parentheses next to each recommendation. "
+              f"You may reference more than one source in a proposed resolution if they "
               f"are similar resolutions.\n")
     # Generate text using the prompt
     response = model.generate_content(prompt)
@@ -154,11 +181,11 @@ def generate_gemini_response(query_text, top_results_issues):
     print("\n\n")
 
     prompt = (f"The customer reports this problem:\n\n{query_text}\n\n"
-              # f"{manual_prompt}\n\n"
+              f"{manual_prompt}\n\n"
               f"Similar problems in the past:\n"
               f"{summarized_cases}\n\n"
               f"What do you recommend as a resolution? Answer in prose form explaining your thinking "
-              f"by referencing past similar problems by Case Id.\n")
+              f"by either referencing past similar problems (by Case Id) or by referencing the relevant manual.\n")
     # Generate text using the prompt
     response = model.generate_content(prompt)
     # Print the generated text
@@ -167,16 +194,12 @@ def generate_gemini_response(query_text, top_results_issues):
     print("\n\n")
 
 
-def query(query_text, pipeline, top_k=5):
+def query(query_text, pipeline, top_k=25):
     results = pipeline.run({"text_embedder": {"text": query_text}, "retriever": {"top_k": top_k}})
     documents = results['retriever']['documents']
-    top_results = [{"Problem": doc.content, **doc.meta} for doc in documents]
+    top_results = [{"Problem": doc.content, "Content": doc.content, **doc.meta} for doc in documents]
     # Generate Gemini response
     generate_gemini_response(query_text, top_results)
-    # for doc in documents:
-    #     print(doc.content)
-    #     print(doc.meta['Resolution'])
-    #     print()
 
 
 def menu(document_store):
@@ -190,11 +213,50 @@ def menu(document_store):
             query(query_text, query_pipeline)
 
 
-def setup():
+def setup(reload_database=False):
     print("Starting database...")
-    document_store = initialize_database(r'D:\Projects\Holley\apex_data.json')
+    document_store = initialize_database(r'D:\Projects\Holley\apex_data.json', recreate_table=reload_database)
     print("Database initialized!")
     menu(document_store)
 
 
-setup()
+def clean_text(row):
+    text = row.content
+    # Replace newline with a space
+    text = re.sub(r'\n', ' ', text)
+    # Replace multiple consecutive spaces with a single space
+    text = re.sub(r'\s+', ' ', text)
+    # Remove all cases of '- '
+    text = re.sub(r'- ', '', text)
+    row.content = text
+    return row
+
+
+def parse_pdf(pdf_file, pdf_name=None):
+    converter = PDFMinerToDocument()  # https://docs.haystack.deepset.ai/docs/pdfminertodocument
+    result = converter.run(sources=[pdf_file],
+                           meta={"date_added": datetime.now().isoformat(),
+                                 "Source": 'PDF',
+                                 "Source Name": pdf_name if pdf_name is not None else pdf_file})
+    converted_document = result["documents"]
+    # print(documents[0].content)
+    cleaner = DocumentCleaner()  # https://docs.haystack.deepset.ai/docs/documentcleaner
+    result = cleaner.run(documents=converted_document)
+    cleaned_document = result["documents"]
+    spliter = DocumentSplitter(split_by="sentence", split_length=5, split_overlap=0)  # https://docs.haystack.deepset.ai/docs/documentsplitter
+    result = spliter.run(documents=cleaned_document)
+    split_document = result["documents"]
+    split_document = [clean_text(row) for row in split_document if row.content != '.....']
+    return split_document
+
+
+def test_pdf_pipeline():
+    pipeline = Pipeline()
+    pipeline.add_component("converter", PDFMinerToDocument())
+    pipeline.add_component("cleaner", DocumentCleaner())
+    pipeline.add_component("splitter", DocumentSplitter(split_by="sentence", split_length=5))
+    return pipeline
+
+
+# parse_pdf("85200_a.pdf", "CS/CTS User Guide")
+setup(reload_database=False)
