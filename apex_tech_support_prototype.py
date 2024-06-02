@@ -32,6 +32,16 @@
 # https://pymupdf.readthedocs.io/en/latest/
 # https://pdfminersix.readthedocs.io/en/latest/
 
+
+# https://haystack.deepset.ai/tutorials/16_document_classifier_at_index_time
+# https://medium.com/@fvanlitsenburg/building-a-privategpt-with-haystack-part-1-why-and-how-de6fa43e18b
+# https://haystack.deepset.ai/integrations/pgvector-documentstore#usage
+# https://haystack.deepset.ai/integrations/pgvector-documentstore
+# https://dev.to/stephenc222/how-to-use-postgresql-to-store-and-query-vector-embeddings-h4b
+# https://docs.haystack.deepset.ai/docs/document-store
+# https://docs.haystack.deepset.ai/docs/pgvectordocumentstore
+
+
 from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
 # from haystack import Document
 import json
@@ -94,10 +104,11 @@ def initialize_database(file_path, recreate_table=False):
     if ds.count_documents() == 0:
         docs = []
         # Load the data from the Apex json
-        apex_docs = load_documents(file_path)
+        apex_issues = load_documents(file_path)
+        # apex_issues = []
         # Load the data from the User Guide
         user_guide = parse_pdf("85200_a.pdf", "CS/CTS User Guide")
-        docs = apex_docs + user_guide
+        docs = user_guide + apex_issues
         # Document database now initialized - embed database if necessary
         docs_with_embeddings = create_embeddings(docs)
         ds.write_documents(docs_with_embeddings['documents'])
@@ -129,7 +140,7 @@ def generate_gemini_response(query_text, top_results):
     genai.configure(api_key=key)
 
     # Create a summary of past resolutions to similar problems
-    top_results_apex = [row for row in top_results if row['Source'] == 'Apex'][:5]
+    top_results_apex = [row for row in top_results[0:100] if row['Source'] == 'Apex'][:5]
     summarized_cases = "\n\n".join([f"Case Id: {entry['CaseId']}\nProblem: {entry['Problem']}"
                                     f"\nResolution: {entry['Resolution']}\n\n" for entry in top_results_apex])
 
@@ -149,20 +160,20 @@ def generate_gemini_response(query_text, top_results):
     # Initialize the Gemini model
     model = GenerativeModel(model_name="gemini-pro")
 
-    if summarized_cases != "":
-        # Define the prompt including similar problems
-        prompt = (f"The customer reports this problem:\n\n{query_text}\n\n"
-                  f"Similar cases:\n"
-                  f"{summarized_cases}\n\n"
-                  f"Summarize in bullet points the similar cases and their problems and resolutions, "
-                  f"referencing them by Case Id:\n")
-
-        # Generate text using the prompt
-        response = model.generate_content(prompt)
-        # Print the generated text
-        print("\n\n")
-        print(response.text)
-        print("\n\n")
+    # if summarized_cases != "":
+    #     # Define the prompt including similar problems
+    #     prompt = (f"The customer reports this problem:\n\n{query_text}\n\n"
+    #               f"Similar cases:\n"
+    #               f"{summarized_cases}\n\n"
+    #               f"Summarize in bullet points the similar cases and their problems and resolutions, "
+    #               f"referencing them by Case Id:\n")
+    #
+    #     # Generate text using the prompt
+    #     response = model.generate_content(prompt)
+    #     # Print the generated text
+    #     print("\n\n")
+    #     print(response.text)
+    #     print("\n\n")
 
     prompt = (f"The customer reports this problem:\n\n{query_text}\n\n"
               f"{manual_prompt}\n\n"
@@ -194,7 +205,7 @@ def generate_gemini_response(query_text, top_results):
     print("\n\n")
 
 
-def query(query_text, pipeline, top_k=25):
+def query(query_text, pipeline, top_k=5000):
     results = pipeline.run({"text_embedder": {"text": query_text}, "retriever": {"top_k": top_k}})
     documents = results['retriever']['documents']
     top_results = [{"Problem": doc.content, "Content": doc.content, **doc.meta} for doc in documents]
@@ -243,10 +254,10 @@ def parse_pdf(pdf_file, pdf_name=None):
     cleaner = DocumentCleaner()  # https://docs.haystack.deepset.ai/docs/documentcleaner
     result = cleaner.run(documents=converted_document)
     cleaned_document = result["documents"]
-    spliter = DocumentSplitter(split_by="sentence", split_length=5, split_overlap=0)  # https://docs.haystack.deepset.ai/docs/documentsplitter
+    spliter = DocumentSplitter(split_by="sentence", split_length=8, split_overlap=5)  # https://docs.haystack.deepset.ai/docs/documentsplitter
     result = spliter.run(documents=cleaned_document)
     split_document = result["documents"]
-    split_document = [clean_text(row) for row in split_document if row.content != '.....']
+    split_document = [clean_text(row) for row in split_document if not re.fullmatch(r'\.*', row.content)]
     return split_document
 
 
