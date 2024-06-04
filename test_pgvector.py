@@ -22,7 +22,7 @@ class PgvectorManager:
         # Create the SentenceTransformer model
         model = SentenceTransformer(self.model_name)
         self.model = model
-        self.vector_size = model.max_seq_length
+        self.vector_size = model.get_sentence_embedding_dimension()
         self.embeddings = None
 
     @staticmethod
