@@ -11,7 +11,7 @@ class PgvectorManager:
                  model_name='all-MiniLM-L6-v2'):
         self.dbname = dbname
         self.user = user
-        self.password = PgvectorManager.get_password(password_file)
+        self.password = self.get_password(password_file)
         self.model_name = model_name
         # Connect to Postgres and create the vector extension
         if self.password is None:
@@ -20,16 +20,15 @@ class PgvectorManager:
         self.conn.execute('CREATE EXTENSION IF NOT EXISTS vector')
         register_vector(self.conn)
         # Create the SentenceTransformer model
-        model = SentenceTransformer(self.model_name)
-        self.model = model
-        self.vector_size = model.get_sentence_embedding_dimension()
+        self.model = SentenceTransformer(self.model_name)
+        self.vector_size = self.model.get_sentence_embedding_dimension()
         self.embeddings = None
 
     @staticmethod
     def get_password(password_file):
         try:
             with open(password_file, 'r') as file:
-                password = file.read()
+                password = file.read().strip()
         except FileNotFoundError:
             print(f"The file '{password_file}' does not exist.")
             password = None
@@ -49,6 +48,8 @@ class PgvectorManager:
                           'embedding vector('+str(self.vector_size)+'))')
 
     def insert_documents(self, texts):
+        if self.embeddings is None or len(texts) != len(self.embeddings):
+            raise ValueError("Mismatch between texts and embeddings. Ensure embeddings are created before inserting.")
         for content, embedding in zip(texts, self.embeddings):
             self.conn.execute('INSERT INTO documents (content, embedding) VALUES (%s, %s)', (content, embedding))
 
