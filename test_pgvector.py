@@ -3,63 +3,77 @@ import psycopg
 from sentence_transformers import SentenceTransformer
 
 
-def get_password():
-    secret_file = r'D:\Documents\Secrets\postgres_password.txt'
-    try:
-        with open(secret_file, 'r') as file:
-            password = file.read()
-    except FileNotFoundError:
-        print(f"The file '{secret_file}' does not exist.")
-    except Exception as e:
-        print(f"An error occurred: {e}")
+class PgvectorManager:
+    def __init__(self,
+                 dbname='postgres',
+                 user='postgres',
+                 password_file=r'D:\Documents\Secrets\postgres_password.txt',
+                 model_name='all-MiniLM-L6-v2'):
+        self.dbname = dbname
+        self.user = user
+        self.password = PgvectorManager.get_password(password_file)
+        self.model_name = model_name
+        # Connect to Postgres and create the vector extension
+        if self.password is None:
+            raise ValueError("Failed to retrieve the database password.")
+        self.conn = psycopg.connect(dbname=self.dbname, autocommit=True, user=self.user, password=self.password)
+        self.conn.execute('CREATE EXTENSION IF NOT EXISTS vector')
+        register_vector(self.conn)
+        # Create the SentenceTransformer model
+        model = SentenceTransformer(self.model_name)
+        self.model = model
+        self.vector_size = model.max_seq_length
+        self.embeddings = None
 
-    return password
+    @staticmethod
+    def get_password(password_file):
+        try:
+            with open(password_file, 'r') as file:
+                password = file.read()
+        except FileNotFoundError:
+            print(f"The file '{password_file}' does not exist.")
+            password = None
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            password = None
+
+        return password
+
+    def create_embeddings(self, texts):
+        self.embeddings = self.model.encode(texts)
+        self.vector_size = self.embeddings.shape[1]
+
+    def create_documents_table(self):
+        self.conn.execute('DROP TABLE IF EXISTS documents')
+        self.conn.execute('CREATE TABLE documents (id bigserial PRIMARY KEY, content text, '
+                          'embedding vector('+str(self.vector_size)+'))')
+
+    def insert_documents(self, texts):
+        for content, embedding in zip(texts, self.embeddings):
+            self.conn.execute('INSERT INTO documents (content, embedding) VALUES (%s, %s)', (content, embedding))
+
+    def find_neighbors(self, document_id=1):
+        neighbors = self.conn.execute(
+            'SELECT content FROM documents WHERE id != %(id)s ORDER BY embedding <=> '
+            '(SELECT embedding FROM documents WHERE id = %(id)s) LIMIT 5',
+            {'id': document_id}).fetchall()
+        for neighbor in neighbors:
+            print(neighbor[0])
 
 
-def connect_to_postgres():
-    password = get_password()
-    conn = psycopg.connect(dbname='postgres', autocommit=True, user='postgres', password=password)
-    conn.execute('CREATE EXTENSION IF NOT EXISTS vector')
-    register_vector(conn)
-    return conn
-
-
-def create_documents_table(conn):
-    conn.execute('DROP TABLE IF EXISTS documents')
-    conn.execute('CREATE TABLE documents (id bigserial PRIMARY KEY, content text, embedding vector(384))')
-
-
-def create_embeddings(texts, model='all-MiniLM-L6-v2'):
-    model = SentenceTransformer('all-MiniLM-L6-v2')
-    embeddings = model.encode(texts)
-    return embeddings
-
-
-def insert_documents(conn, input, embeddings):
-    for content, embedding in zip(input, embeddings):
-        conn.execute('INSERT INTO documents (content, embedding) VALUES (%s, %s)', (content, embedding))
-
-
-def find_neighbors(conn, document_id=1):
-    neighbors = conn.execute(
-        'SELECT content FROM documents WHERE id != %(id)s ORDER BY embedding <=> '
-        '(SELECT embedding FROM documents WHERE id = %(id)s) LIMIT 5',
-        {'id': document_id}).fetchall()
-    for neighbor in neighbors:
-        print(neighbor[0])
-
-
-def run_test():
+def test_postgres_document_manager():
+    model_name = 'sentence-transformers/all-mpnet-base-v2'  # 'sentence-transformers/multi-qa-mpnet-base-dot-v1'
+    manager = PgvectorManager(model_name=model_name)
     texts = [
         'The dog is barking',
         'The cat is purring',
         'The bear is growling'
     ]
-    conn = connect_to_postgres()
-    create_documents_table(conn)
-    embeddings = create_embeddings(texts)
-    insert_documents(conn, texts, embeddings)
-    find_neighbors(conn, 1)
+    manager.create_embeddings(texts)
+    manager.create_documents_table()
+    manager.insert_documents(texts)
+    manager.find_neighbors(1)
 
 
-run_test()
+if __name__ == '__main__':
+    test_postgres_document_manager()
