@@ -21,6 +21,15 @@ class PgvectorManager:
         register_vector(self.conn)
         # Create the SentenceTransformer model
         self.model = SentenceTransformer(self.model_name)
+        self.model.max_seq_length = 512  # No idea if this works
+        # see: https://huggingface.co/sentence-transformers/all-mpnet-base-v2/discussions/15
+        # https://www.sbert.net/examples/applications/computing-embeddings/README.html
+        # https://www.pinecone.io/learn/chunking-strategies/
+        # https://medium.com/@joseph.nyirenda/mean-pooling-with-sentence-transformers-2e326f25b046
+        # https://www.youtube.com/watch?v=WS1uVMGhlWQ
+        # https://www.linkedin.com/pulse/prompt-engineering-chunking-strategies-ravi-naarla/
+        # https://www.reddit.com/r/LocalLLaMA/comments/16cdsv6/which_sentence_transformer_is_the_best_one_for/
+        # https://github.com/pgvector/pgvector-python/tree/master
         self.vector_size = self.model.get_sentence_embedding_dimension()
         self.embeddings = None
 
