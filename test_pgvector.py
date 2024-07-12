@@ -32,6 +32,7 @@ class PgvectorManager:
         # https://github.com/pgvector/pgvector-python/tree/master
         self.vector_size = self.model.get_sentence_embedding_dimension()
         self.embeddings = None
+        self.texts = None
 
     @staticmethod
     def get_password(password_file):
@@ -47,8 +48,8 @@ class PgvectorManager:
 
         return password
 
-    def create_embeddings(self, texts):
-        self.embeddings = self.model.encode(texts)
+    def create_embeddings(self):
+        self.embeddings = self.model.encode(self.texts)
         self.vector_size = self.embeddings.shape[1]
 
     def create_documents_table(self):
@@ -56,10 +57,10 @@ class PgvectorManager:
         self.conn.execute('CREATE TABLE documents (id bigserial PRIMARY KEY, content text, '
                           'embedding vector('+str(self.vector_size)+'))')
 
-    def insert_documents(self, texts):
-        if self.embeddings is None or len(texts) != len(self.embeddings):
+    def insert_documents(self):
+        if self.embeddings is None or len(self.texts) != len(self.embeddings):
             raise ValueError("Mismatch between texts and embeddings. Ensure embeddings are created before inserting.")
-        for content, embedding in zip(texts, self.embeddings):
+        for content, embedding in zip(self.texts, self.embeddings):
             self.conn.execute('INSERT INTO documents (content, embedding) VALUES (%s, %s)', (content, embedding))
 
     def find_neighbors(self, document_id=1):
@@ -70,6 +71,12 @@ class PgvectorManager:
         for neighbor in neighbors:
             print(neighbor[0])
 
+    def store_documents(self, texts):
+        self.texts = texts
+        self.create_embeddings()
+        self.create_documents_table()
+        self.insert_documents()
+
 
 def test_postgres_document_manager():
     model_name = 'sentence-transformers/all-mpnet-base-v2'  # 'sentence-transformers/multi-qa-mpnet-base-dot-v1'
@@ -79,9 +86,7 @@ def test_postgres_document_manager():
         'The cat is purring',
         'The bear is growling'
     ]
-    manager.create_embeddings(texts)
-    manager.create_documents_table()
-    manager.insert_documents(texts)
+    manager.store_documents(texts)
     manager.find_neighbors(1)
 
 
