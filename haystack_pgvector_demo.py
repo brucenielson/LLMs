@@ -89,25 +89,27 @@ def run_indexing_pipeline(indexing_pipeline, document_store):
 
 
 # Set up query pipeline
-def run_query_pipeline(document_store, query):
+def create_query_pipeline(document_store):
     query_pipeline = Pipeline()
     query_pipeline.add_component("text_embedder", SentenceTransformersTextEmbedder())
-    query_pipeline.add_component("retriever", PgvectorEmbeddingRetriever(document_store=document_store))
+    # https://docs.haystack.deepset.ai/docs/pgvectorembeddingretriever
+    query_pipeline.add_component("retriever", PgvectorEmbeddingRetriever(document_store=document_store, top_k=5))
     query_pipeline.connect("text_embedder.embedding", "retriever.query_embedding")
-    result = query_pipeline.run({"text_embedder": {"text": query}})
-
-    documents = result['retriever']['documents']
-    for doc in documents:
-        print(doc.content)
-        print(f"Score: {doc.score}")
-        print("")
+    return query_pipeline
 
 
 # Main function to run the semantic search
 def main():
     epub_file_path = "Federalist Papers.epub"
     document_store = initialize_and_load_documents(epub_file_path)
-    run_query_pipeline(document_store, "What is the role of the judiciary in a democracy?")
+    query_pipeline = create_query_pipeline(document_store)
+    query = "What is the role of the judiciary in a democracy?"
+    result = query_pipeline.run({"text_embedder": {"text": query}})
+    documents = result['retriever']['documents']
+    for doc in documents:
+        print(doc.content)
+        print(f"Score: {doc.score}")
+        print("")
 
 
 main()
