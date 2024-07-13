@@ -1,4 +1,3 @@
-import os
 from haystack import Pipeline, Document
 from haystack.components.preprocessors import TextCleaner, DocumentCleaner, DocumentSplitter
 from haystack.components.embedders import SentenceTransformersDocumentEmbedder, SentenceTransformersTextEmbedder
@@ -26,9 +25,6 @@ def load_epub(epub_file_path):
             # https://docs.haystack.deepset.ai/docs/data-classes#bytestream
             byte_stream = ByteStream(p_html.encode('utf-8'))
             docs.append(byte_stream)
-
-    # html_content += ''.join([str(p) for p in paragraphs])  # Combine paragraph strings
-    # Add missing elements (optional)
     return docs
 
 
@@ -51,25 +47,25 @@ def initialize_and_load_documents(epub_file_path, recreate_table=False):
         converter = HTMLToDocument()
         results = converter.run(sources=sources)
         converted_docs = results["documents"]
+        # Remove documents with empty content
         converted_docs = [Document(content=doc.content) for doc in converted_docs if doc.content is not None]
-
         # Remove duplicate Documents with duplicates with duplicate document ids
         converted_docs = list({doc.id: doc for doc in converted_docs}.values())
 
         # Clean the documents
         # https://docs.haystack.deepset.ai/docs/documentcleaner
         cleaner = DocumentCleaner()
-        cleaned_docs = cleaner.run(documents=converted_docs)
+        cleaned_docs = cleaner.run(documents=converted_docs)["documents"]
 
         # Split the documents
         # https://docs.haystack.deepset.ai/docs/documentsplitter
         splitter = DocumentSplitter(split_by="word",
-                                    split_length=500,
+                                    split_length=400,
                                     split_overlap=0,
-                                    split_threshold=50)
-        split_docs = splitter.run(documents=cleaned_docs["documents"])
-        docs_with_embeddings = create_embeddings(split_docs['documents'])
-        document_store.write_documents(docs_with_embeddings['documents'])
+                                    split_threshold=100)
+        split_docs = splitter.run(documents=cleaned_docs)["documents"]
+        docs_with_embeddings = create_embeddings(split_docs)["documents"]
+        document_store.write_documents(docs_with_embeddings)
 
     return document_store
 
@@ -79,13 +75,6 @@ def create_embeddings(documents):
     document_embedder.warm_up()
     documents_with_embeddings = document_embedder.run(documents)
     return documents_with_embeddings
-
-
-# Run indexing pipeline
-def run_indexing_pipeline(indexing_pipeline, document_store):
-    documents = document_store.get_all_documents()
-    results = indexing_pipeline.run({"documents": documents})
-    document_store.write_documents(results["documents"])
 
 
 # Set up query pipeline
