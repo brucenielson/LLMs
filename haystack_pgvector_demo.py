@@ -23,6 +23,7 @@ def load_epub(epub_file_path):
         for p in paragraphs:
             p_str = str(p)
             p_html = f"<html><head><title>Converted Epub</title></head><body>{p_str}</body></html>"
+            # https://docs.haystack.deepset.ai/docs/data-classes#bytestream
             byte_stream = ByteStream(p_html.encode('utf-8'))
             docs.append(byte_stream)
 
@@ -46,6 +47,7 @@ def initialize_and_load_documents(epub_file_path, recreate_table=False):
         # Convert EPUB to text documents
         sources = load_epub(epub_file_path)
 
+        # https://docs.haystack.deepset.ai/docs/htmltodocument
         converter = HTMLToDocument()
         results = converter.run(sources=sources)
         converted_docs = results["documents"]
@@ -55,10 +57,12 @@ def initialize_and_load_documents(epub_file_path, recreate_table=False):
         converted_docs = list({doc.id: doc for doc in converted_docs}.values())
 
         # Clean the documents
+        # https://docs.haystack.deepset.ai/docs/documentcleaner
         cleaner = DocumentCleaner()
         cleaned_docs = cleaner.run(documents=converted_docs)
 
         # Split the documents
+        # https://docs.haystack.deepset.ai/docs/documentsplitter
         splitter = DocumentSplitter(split_by="word",
                                     split_length=500,
                                     split_overlap=0,
@@ -85,26 +89,25 @@ def run_indexing_pipeline(indexing_pipeline, document_store):
 
 
 # Set up query pipeline
-def setup_query_pipeline(document_store):
-    text_embedder = SentenceTransformersTextEmbedder(model_name="sentence-transformers/multi-qa-mpnet-base-dot-v1")
-    retriever = PgvectorEmbeddingRetriever(document_store=document_store)
-
+def run_query_pipeline(document_store, query):
     query_pipeline = Pipeline()
-    query_pipeline.add_component("text_embedder", text_embedder)
-    query_pipeline.add_component("retriever", retriever)
-
+    query_pipeline.add_component("text_embedder", SentenceTransformersTextEmbedder())
+    query_pipeline.add_component("retriever", PgvectorEmbeddingRetriever(document_store=document_store))
     query_pipeline.connect("text_embedder.embedding", "retriever.query_embedding")
+    result = query_pipeline.run({"text_embedder": {"text": query}})
 
-    return query_pipeline
+    documents = result['retriever']['documents']
+    for doc in documents:
+        print(doc.content)
+        print(f"Score: {doc.score}")
+        print("")
 
 
 # Main function to run the semantic search
 def main():
     epub_file_path = "Federalist Papers.epub"
     document_store = initialize_and_load_documents(epub_file_path)
-    query_pipeline = setup_query_pipeline(document_store)
-    result = query_pipeline.run(query="What is the role of the judiciary in a democracy?")
-    print(result)
+    run_query_pipeline(document_store, "What is the role of the judiciary in a democracy?")
 
 
 main()
