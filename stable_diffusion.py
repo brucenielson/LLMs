@@ -1,3 +1,4 @@
+# https://medium.com/@demstalfer/quick-guide-to-using-the-new-stable-diffusion-xl-for-code-enthusiasts-bd71136dd794
 import random
 import sys
 import torch
@@ -5,77 +6,115 @@ import os
 import datetime
 from diffusers import DiffusionPipeline
 from accelerate import Accelerator
+from typing import List, Tuple, Union
 
 
-def setup_pipeline(prompts, use_refiner=True, height=None, width=None, guidance_scale=5.0, num_images_per_prompt=1):
-    torch_dtype = torch.float16
-    use_safetensors = True
-    variant = "fp16"
-    output_type = "latent" if use_refiner else "pil"
+class StableDiffusionXLPipeline:
+    def __init__(self, use_refiner: bool = True, height: int = None, width: int = None,
+                 guidance_scale: float = 5.0, num_images_per_prompt: int = 1):
+        self.use_refiner = use_refiner
+        self.height = height
+        self.width = width
+        self.guidance_scale = guidance_scale
+        self.num_images_per_prompt = num_images_per_prompt
+        self.output_dir = 'output_images'
+        self.torch_dtype = None
+        self.accelerator = None
+        self.device = None
+        self.refiner = None
+        self.pipe = None
+        self.setup_pipeline()
 
-    accelerator = Accelerator()
-    device = accelerator.device
+    def setup_pipeline(self):
+        self.torch_dtype = torch.float16
+        self.accelerator = Accelerator()
+        self.device = self.accelerator.device
 
-    pipe = DiffusionPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0",
-                                             torch_dtype=torch_dtype,
-                                             use_safetensors=use_safetensors,
-                                             variant=variant)
+        self.pipe = DiffusionPipeline.from_pretrained(
+            "stabilityai/stable-diffusion-xl-base-1.0",
+            torch_dtype=self.torch_dtype,
+            use_safetensors=True,
+            variant="fp16"
+        )
 
-    refiner = None
-    if use_refiner:
-        refiner = DiffusionPipeline.from_pretrained("stabilityai/stable-diffusion-xl-refiner-1.0",
-                                                    text_encoder_2=pipe.text_encoder_2,
-                                                    vae=pipe.vae,
-                                                    torch_dtype=torch_dtype,
-                                                    use_safetensors=use_safetensors,
-                                                    variant=variant).to(device)
-        pipe.enable_model_cpu_offload()
-    else:
-        pipe = pipe.to(device)
-
-    for prompt_tuple in prompts:
-        if isinstance(prompt_tuple, str):
-            prompt = prompt_tuple
-            prompt_2 = None
-            negative_prompt = None
-            negative_prompt_2 = None
+        if self.use_refiner:
+            self.refiner = DiffusionPipeline.from_pretrained(
+                "stabilityai/stable-diffusion-xl-refiner-1.0",
+                text_encoder_2=self.pipe.text_encoder_2,
+                vae=self.pipe.vae,
+                torch_dtype=self.torch_dtype,
+                use_safetensors=True,
+                variant="fp16"
+            ).to(self.device)
+            self.pipe.enable_model_cpu_offload()
         else:
-            prompt = prompt_tuple[0]
-            prompt_2 = prompt_tuple[1] if len(prompt_tuple) > 1 else None
-            negative_prompt = prompt_tuple[2] if len(prompt_tuple) > 2 else None
-            negative_prompt_2 = prompt_tuple[3] if len(prompt_tuple) > 3 else None
+            self.pipe = self.pipe.to(self.device)
 
+    def process_prompts(self, prompts: List[Union[str, Tuple[str, ...]]]):
+        for prompt_tuple in prompts:
+            self._process_single_prompt(prompt_tuple)
+
+    def _process_single_prompt(self, prompt_tuple: Union[str, Tuple[str, ...]]):
+        prompt, prompt_2, negative_prompt, negative_prompt_2 = (
+            StableDiffusionXLPipeline._parse_prompt_tuple(prompt_tuple))
         seed = random.randint(0, sys.maxsize)
+        generator = torch.Generator(self.device).manual_seed(seed)
 
         print(f"Prompt:\t{prompt}")
         print(f"Seed:\t{seed}")
 
-        generator = torch.Generator(device).manual_seed(seed)
+        images = self._generate_images(prompt, prompt_2, negative_prompt, negative_prompt_2, generator)
+        self._save_images(images, prompt)
 
-        images = pipe(prompt=prompt, prompt_2=prompt_2, negative_prompt=negative_prompt,
-                      negative_prompt_2=negative_prompt_2, output_type=output_type, generator=generator,
-                      height=height, width=width, guidance_scale=guidance_scale,
-                      num_images_per_prompt=num_images_per_prompt).images
+    from typing import Union, Tuple, Optional
 
-        if use_refiner:
-            images = refiner(prompt=prompt, image=images).images
+    @staticmethod
+    def _parse_prompt_tuple(prompt_tuple: Union[str, Tuple[str, ...]]) \
+            -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
+        if isinstance(prompt_tuple, str):
+            return prompt_tuple, None, None, None
+        return (prompt_tuple[0],
+                prompt_tuple[1] if len(prompt_tuple) > 1 else None,
+                prompt_tuple[2] if len(prompt_tuple) > 2 else None,
+                prompt_tuple[3] if len(prompt_tuple) > 3 else None)
 
-        output_dir = 'output_images'
-        os.makedirs(output_dir, exist_ok=True)
+    def _generate_images(self, prompt, prompt_2, negative_prompt, negative_prompt_2, generator):
+        output_type = "latent" if self.use_refiner else "pil"
+        images = self.pipe(
+            prompt=prompt,
+            prompt_2=prompt_2,
+            negative_prompt=negative_prompt,
+            negative_prompt_2=negative_prompt_2,
+            output_type=output_type,
+            generator=generator,
+            height=self.height,
+            width=self.width,
+            guidance_scale=self.guidance_scale,
+            num_images_per_prompt=self.num_images_per_prompt
+        ).images
+
+        if self.use_refiner:
+            images = self.refiner(prompt=prompt, image=images).images
+
+        return images
+
+    def _save_images(self, images, prompt):
+        os.makedirs(self.output_dir, exist_ok=True)
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
 
         for i, image in enumerate(images):
-            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            image_path = os.path.join(output_dir, f"output_{timestamp}_{i}.jpg")
+            image_path = os.path.join(self.output_dir, f"output_{timestamp}_{i}.jpg")
             print(f"Saving image to {image_path}")
             image.save(image_path)
 
         print(f"Image complete. {prompt}")
 
 
-prompts_to_process = [
-    "A fairy princess and her majestic dragon. Photorealistic."
-]
+# Usage
+if __name__ == "__main__":
+    prompts_to_process = [
+        "A fairy princess and her majestic dragon. Photorealistic."
+    ]
 
-setup_pipeline(prompts_to_process) #, num_images_per_prompt=2)
-# https://huggingface.co/stabilityai/stable-diffusion-xl-refiner-1.0
-# https://huggingface.co/docs/diffusers/main/en/api/pipelines/stable_diffusion/stable_diffusion_xl
+    pipeline = StableDiffusionXLPipeline(use_refiner=True, num_images_per_prompt=1)
+    pipeline.process_prompts(prompts_to_process)

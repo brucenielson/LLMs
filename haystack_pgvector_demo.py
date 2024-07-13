@@ -1,5 +1,5 @@
 from haystack import Pipeline, Document
-from haystack.components.preprocessors import TextCleaner, DocumentCleaner, DocumentSplitter
+from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
 from haystack.components.embedders import SentenceTransformersDocumentEmbedder, SentenceTransformersTextEmbedder
 from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
 from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
@@ -92,7 +92,7 @@ def main():
     epub_file_path = "Federalist Papers.epub"
     document_store = initialize_and_load_documents(epub_file_path)
     query_pipeline = create_query_pipeline(document_store)
-    query = "What is the role of the judiciary in a democracy?"
+    query = "Are we a democracy or a republic?"
     result = query_pipeline.run({"text_embedder": {"text": query}})
     documents = result['retriever']['documents']
     for doc in documents:
