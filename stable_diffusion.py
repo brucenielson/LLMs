@@ -9,8 +9,12 @@ from typing import List, Union, Dict, Optional
 
 
 class StableDiffusionXLPipeline:
-    def __init__(self, use_refiner: bool = True, height: int = 768, width: int = 768,
-                 guidance_scale: float = 5.0, num_images_per_prompt: int = 1, output_dir: str = 'output_images'):
+    def __init__(self, use_refiner: bool = True,
+                 height: int = 768,
+                 width: int = 768,
+                 guidance_scale: float = 5.0,
+                 num_images_per_prompt: int = 1,
+                 output_dir: str = None):
         self._use_refiner = use_refiner
         self._height = height
         self._width = width
@@ -100,11 +104,14 @@ class StableDiffusionXLPipeline:
             self.refiner = None
 
     def process_prompts(self, prompts: List[Union[str, Dict]]):
+        images = []
         for prompt in prompts:
             if isinstance(prompt, str):
-                self.generate_image(prompt)
+                images = images + self.generate_image(prompt)
             elif isinstance(prompt, dict):
-                self.generate_image(**prompt)
+                images = images + self.generate_image(**prompt)
+
+        return images
 
     def generate_image(self, prompt: str, prompt_2: Optional[str] = None,
                        negative_prompt: Optional[str] = None, negative_prompt_2: Optional[str] = None,
@@ -138,15 +145,16 @@ class StableDiffusionXLPipeline:
         return images
 
     def _save_images(self, images, prompt):
-        os.makedirs(self._output_dir, exist_ok=True)
-        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        if self._output_dir is not None:
+            os.makedirs(self._output_dir, exist_ok=True)
+            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
 
-        for i, image in enumerate(images):
-            image_path = os.path.join(self._output_dir, f"output_{timestamp}_{i}.jpg")
-            print(f"Saving image to {image_path}")
-            image.save(image_path)
+            for i, image in enumerate(images):
+                image_path = os.path.join(self._output_dir, f"output_{timestamp}_{i}.jpg")
+                print(f"Saving image to {image_path}")
+                image.save(image_path)
 
-        print(f"Image complete. {prompt}")
+            print(f"Image complete. {prompt}")
 
 
 # Usage example
