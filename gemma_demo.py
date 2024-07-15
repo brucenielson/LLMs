@@ -1,4 +1,4 @@
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer
 import torch
 from huggingface_hub import login
 
@@ -22,7 +22,10 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 
 input_text = "Write me a poem about Machine Learning."
-input_ids = tokenizer(input_text, return_tensors="pt").to("cuda")
+inputs = tokenizer(input_text, return_tensors="pt").to("cuda")
+# https://huggingface.co/docs/transformers/v4.42.0/en/internal/generation_utils#transformers.TextStreamer
+# https://huggingface.co/docs/text-generation-inference/conceptual/streaming
+streamer = TextStreamer(tokenizer, skip_prompt=True, max_length=2000)
 
-outputs = model.generate(**input_ids, max_length=2000).to("cuda")
-print(tokenizer.decode(outputs[0]))
+_ = model.generate(**inputs, streamer=streamer, max_length=2000, do_sample=True, temperature=0.9)
+
