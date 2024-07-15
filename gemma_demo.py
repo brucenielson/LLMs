@@ -25,6 +25,7 @@ input_text = "Write me a poem about Machine Learning."
 inputs = tokenizer(input_text, return_tensors="pt").to("cuda")
 # https://huggingface.co/docs/transformers/v4.42.0/en/internal/generation_utils#transformers.TextStreamer
 # https://huggingface.co/docs/text-generation-inference/conceptual/streaming
+# https://www.gradio.app/guides/quickstart
 streamer = TextStreamer(tokenizer, skip_prompt=True, max_length=2000)
 
 _ = model.generate(**inputs, streamer=streamer, max_length=2000, do_sample=True, temperature=0.9)
