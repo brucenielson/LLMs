@@ -117,7 +117,7 @@ def create_query_pipeline(document_store):
 # Main function to run the semantic search
 def main():
     epub_file_path = "Federalist Papers.epub"
-    document_store = initialize_and_load_documents(epub_file_path, recreate_table=True)
+    document_store = initialize_and_load_documents(epub_file_path, recreate_table=False)
     query_pipeline = create_query_pipeline(document_store)
     query = "Are we a democracy or a republic?"
     result = query_pipeline.run({"text_embedder": {"text": query}})
