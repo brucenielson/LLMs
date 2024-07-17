@@ -45,11 +45,11 @@ def load_epub(epub_file_path):
     return docs
 
 
-def doc_splitter_pipeline(document_store: PgvectorDocumentStore):
+def doc_converter_pipeline(document_store: PgvectorDocumentStore):
     pipeline = Pipeline()
     # https://docs.haystack.deepset.ai/docs/htmltodocument
     pipeline.add_component("converter", HTMLToDocument())
-    pipeline.add_component("remove_duplicates", instance=RemoveIllegalDocs())
+    pipeline.add_component("remove_illegal_docs", instance=RemoveIllegalDocs())
     # https://docs.haystack.deepset.ai/docs/documentcleaner
     pipeline.add_component("cleaner", DocumentCleaner())
     # https://docs.haystack.deepset.ai/docs/documentsplitter
@@ -64,8 +64,8 @@ def doc_splitter_pipeline(document_store: PgvectorDocumentStore):
     pipeline.add_component("writer", DocumentWriter(document_store=document_store))
 
     # Connect the components
-    pipeline.connect("converter", "remove_duplicates")
-    pipeline.connect("remove_duplicates", "cleaner")
+    pipeline.connect("converter", "remove_illegal_docs")
+    pipeline.connect("remove_illegal_docs", "cleaner")
     pipeline.connect("cleaner", "splitter")
     pipeline.connect("splitter", "embedder")
     pipeline.connect("embedder", "writer")
@@ -89,7 +89,7 @@ def initialize_and_load_documents(epub_file_path, recreate_table=False):
         sources = load_epub(epub_file_path)
         # docs_with_embeddings = create_embeddings(split_docs)["documents"]
         # document_store.write_documents(docs_with_embeddings)
-        pipeline = doc_splitter_pipeline(document_store)
+        pipeline = doc_converter_pipeline(document_store)
         results = pipeline.run({"converter": {"sources": sources}})
         print("\n\n")
         print(f"Number of documents: {results['writer']['documents_written']}")
