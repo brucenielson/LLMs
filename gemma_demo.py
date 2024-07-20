@@ -2,6 +2,10 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer
 import torch
 from huggingface_hub import login
 
+# Check for GPU availability
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Using device: {device}")
+
 # Use huggingface-cli login
 secret_file = r'D:\Documents\Secrets\huggingface_secret.txt'
 try:
@@ -18,11 +22,11 @@ tokenizer = AutoTokenizer.from_pretrained("google/gemma-1.1-2b-it")  # google/ge
 model = AutoModelForCausalLM.from_pretrained(
     "google/gemma-1.1-2b-it",
     device_map="auto",
-    torch_dtype=torch.bfloat16
+    torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32
 )
 
 input_text = "Write me a poem about Machine Learning."
-inputs = tokenizer(input_text, return_tensors="pt").to("cuda")
+inputs = tokenizer(input_text, return_tensors="pt").to(device)
 # https://huggingface.co/docs/transformers/v4.42.0/en/internal/generation_utils#transformers.TextStreamer
 # https://huggingface.co/docs/text-generation-inference/conceptual/streaming
 # https://www.gradio.app/guides/quickstart
