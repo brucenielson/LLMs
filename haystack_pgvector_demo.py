@@ -20,11 +20,13 @@ from haystack.document_stores.types import DuplicatePolicy
 
 
 class HaystackPgvectorDemo:
-    def __init__(self, table_name: str = 'document_store', recreate_table: bool = False, book_file_path: str = None):
-        # Attempt to login to Hugging Face
-        secret = HaystackPgvectorDemo.get_secret()
-        login(secret, add_to_git_credential=True)
-        # os.environ["HF_API_TOKEN"] = secret
+    def __init__(self, table_name: str = 'document_store',
+                 recreate_table: bool = False,
+                 book_file_path: str = None,
+                 hf_password: str = None):
+
+        if hf_password is not None:
+            login(hf_password, add_to_git_credential=True)
 
         self.book_file_path = book_file_path
         self.table_name = table_name
@@ -171,10 +173,15 @@ class HaystackPgvectorDemo:
 
 
 def main():
+    # Attempt to login to Hugging Face
+    secret = HaystackPgvectorDemo.get_secret()
+    # os.environ["HF_API_TOKEN"] = secret
+
     epub_file_path = "Federalist Papers.epub"
     processor = HaystackPgvectorDemo(table_name="federalist_papers",
                                      recreate_table=False,
-                                     book_file_path=epub_file_path)
+                                     book_file_path=epub_file_path,
+                                     hf_password=secret)
 
     query = "What is the difference between a republic and a democracy?"
     processor.get_generative_answer(query)
