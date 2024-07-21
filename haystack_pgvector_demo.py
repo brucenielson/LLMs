@@ -121,11 +121,12 @@ def create_query_pipeline(document_store):
 
 
 def create_generator_pipeline(document_store):
+    # https://www.promptingguide.ai/models/gemma
     generator = HuggingFaceLocalGenerator(
         model='google/gemma-1.1-2b-it',
         generation_kwargs={
             "max_new_tokens": 500,
-            "temperature": 0.1,
+            "temperature": 0.6,
             "do_sample": True,
             # "max_length": 2000,
         })
@@ -134,13 +135,13 @@ def create_generator_pipeline(document_store):
 
     prompt_template = """
     <start_of_turn>user
-    Using the information contained in the context, give a comprehensive answer to the question.
+    Quoting the information contained in the context where possible, give a comprehensive answer to the question.
 
     Context:
       {% for doc in documents %}
       {{ doc.content }}
       {% endfor %};
-    
+
     Question: {{query}}<end_of_turn>
 
     <start_of_turn>model
