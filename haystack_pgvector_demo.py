@@ -125,7 +125,9 @@ def create_generator_pipeline(document_store):
         model='google/gemma-1.1-2b-it',
         generation_kwargs={
             "max_new_tokens": 500,
-            "temperature": 0.9,
+            "temperature": 0.1,
+            "do_sample": True,
+            # "max_length": 2000,
         })
 
     generator.warm_up()
@@ -138,7 +140,8 @@ def create_generator_pipeline(document_store):
       {% for doc in documents %}
       {{ doc.content }}
       {% endfor %};
-      Question: {{query}}<end_of_turn>
+    
+    Question: {{query}}<end_of_turn>
 
     <start_of_turn>model
     """
@@ -207,7 +210,7 @@ def main():
     epub_file_path = "Federalist Papers.epub"
     document_store = initialize_and_load_documents(epub_file_path, recreate_table=False)
     query_pipeline = create_query_pipeline(document_store)
-    query = "Are we a democracy or a republic?"
+    query = "What is the difference between a republic and a democracy?"
     # result = query_pipeline.run({"text_embedder": {"text": query}})
     # documents = result['retriever']['documents']
     # for doc in documents:
