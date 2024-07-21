@@ -18,9 +18,10 @@ except Exception as e:
 
 login(secret_text)
 
-tokenizer = AutoTokenizer.from_pretrained("google/gemma-1.1-2b-it")  # google/gemma-2-9b-it
+model_name = 'google/gemma-1.1-2b-it'  # or use google/gemma-2-9b-it
+tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(
-    "google/gemma-1.1-2b-it",
+    model_name,
     device_map="auto",
     torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32
 )
@@ -30,7 +31,7 @@ inputs = tokenizer(input_text, return_tensors="pt").to(device)
 # https://huggingface.co/docs/transformers/v4.42.0/en/internal/generation_utils#transformers.TextStreamer
 # https://huggingface.co/docs/text-generation-inference/conceptual/streaming
 # https://www.gradio.app/guides/quickstart
-streamer = TextStreamer(tokenizer, skip_prompt=True, max_length=2000)
+streamer = TextStreamer(tokenizer, skip_prompt=True)
 
 _ = model.generate(**inputs, streamer=streamer, max_length=2000, do_sample=True, temperature=0.9)
 
