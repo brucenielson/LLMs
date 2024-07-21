@@ -9,6 +9,12 @@ from bs4 import BeautifulSoup
 from ebooklib import epub, ITEM_DOCUMENT
 from haystack.components.writers import DocumentWriter
 from typing import List
+from haystack.components.builders import PromptBuilder
+from haystack.components.generators import HuggingFaceLocalGenerator
+from huggingface_hub import login
+import os
+from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer
+import torch
 
 
 @component
@@ -114,18 +120,103 @@ def create_query_pipeline(document_store):
     return query_pipeline
 
 
+def create_generator_pipeline(document_store):
+    generator = HuggingFaceLocalGenerator(
+        model='google/gemma-1.1-2b-it',
+        generation_kwargs={
+            "max_new_tokens": 500,
+            "temperature": 0.9,
+        })
+
+    generator.warm_up()
+
+    prompt_template = """
+    <start_of_turn>user
+    Using the information contained in the context, give a comprehensive answer to the question.
+
+    Context:
+      {% for doc in documents %}
+      {{ doc.content }}
+      {% endfor %};
+      Question: {{query}}<end_of_turn>
+
+    <start_of_turn>model
+    """
+    prompt_builder = PromptBuilder(template=prompt_template)
+
+    rag = Pipeline()
+    rag.add_component("query_embedder", SentenceTransformersTextEmbedder())
+    rag.add_component("retriever", PgvectorEmbeddingRetriever(document_store=document_store, top_k=5))
+    rag.add_component("prompt_builder", prompt_builder)
+    rag.add_component("llm", generator)
+
+    rag.connect("query_embedder.embedding", "retriever.query_embedding")
+    rag.connect("retriever.documents", "prompt_builder.documents")
+    rag.connect("prompt_builder.prompt", "llm.prompt")
+    return rag
+
+
+# https://huggingface.co/docs/text-generation-inference/index
+
+def get_generative_answer(query, rag_pipeline):
+    results = rag_pipeline.run({
+      "query_embedder": {"text": query},
+      "prompt_builder": {"query": query}
+    }
+    )
+    # res = pipe.run({
+    #     "prompt_builder": {
+    #         "query": query
+    #     },
+    #     "retriever": {
+    #         "query": query
+    #     }
+    # })
+
+    answer = results["llm"]["replies"][0]
+    print(answer)
+
+
+def get_secret():
+    secret_file = r'D:\Documents\Secrets\huggingface_secret.txt'
+    try:
+        with open(secret_file, 'r') as file:
+            secret_text = file.read()
+    except FileNotFoundError:
+        print(f"The file '{secret_file}' does not exist.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+    login(secret_text)
+    # os.environ["HF_API_TOKEN"] = secret_text
+
+
+def create_generator():
+    model_name = 'google/gemma-1.1-2b-it'  # or use google/gemma-2-9b-it
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        device_map="auto",
+        torch_dtype=torch.bfloat16 #if device == "cuda" else torch.float32
+    )
+    return model, tokenizer
+
+
 # Main function to run the semantic search
 def main():
     epub_file_path = "Federalist Papers.epub"
     document_store = initialize_and_load_documents(epub_file_path, recreate_table=False)
     query_pipeline = create_query_pipeline(document_store)
     query = "Are we a democracy or a republic?"
-    result = query_pipeline.run({"text_embedder": {"text": query}})
-    documents = result['retriever']['documents']
-    for doc in documents:
-        print(doc.content)
-        print(f"Score: {doc.score}")
-        print("")
+    # result = query_pipeline.run({"text_embedder": {"text": query}})
+    # documents = result['retriever']['documents']
+    # for doc in documents:
+    #     print(doc.content)
+    #     print(f"Score: {doc.score}")
+    #     print("")
+    # model, tokenizer = create_generator()
+    rag_pipeline = create_generator_pipeline(document_store)
+    get_generative_answer(query, rag_pipeline=rag_pipeline)
 
 
 main()
