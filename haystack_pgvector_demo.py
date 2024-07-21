@@ -3,7 +3,7 @@ from typing import List
 from bs4 import BeautifulSoup
 from ebooklib import epub, ITEM_DOCUMENT
 import torch
-from huggingface_hub import login
+import huggingface_hub as hf_hub
 
 from haystack import Pipeline, Document, component
 from haystack.dataclasses import ByteStream
@@ -23,19 +23,38 @@ class HaystackPgvectorDemo:
     def __init__(self, table_name: str = 'document_store',
                  recreate_table: bool = False,
                  book_file_path: str = None,
-                 hf_password: str = None):
+                 hf_password: str = None,
+                 llm_model_name: str = 'google/gemma-1.1-2b-it',
+                 text_embedder_model_name: str = None):
 
+        # If given a Hugging Face password, login to the Hugging Face Hub
         if hf_password is not None:
-            login(hf_password, add_to_git_credential=True)
+            hf_hub.login(hf_password, add_to_git_credential=True)
 
+        self.text_embedder_model_name = text_embedder_model_name
+        # Initialize the SentenceTransformersTextEmbedder
+        self.sentence_embedder: SentenceTransformersTextEmbedder
+        if self.text_embedder_model_name is not None:
+            self.sentence_embedder = SentenceTransformersTextEmbedder(
+                model_name_or_path=self.text_embedder_model_name)
+        else:
+            self.sentence_embedder = SentenceTransformersTextEmbedder()
+        self.sentence_embedder.warm_up()
+        # Get the embedding dimensions for this SentenceTransformersTextEmbedder model
+        self.embedding_dims = self.sentence_embedder.embedding_backend.model.get_sentence_embedding_dimension()
+        # Save off other parameters
+        self.llm_model_name = llm_model_name
         self.book_file_path = book_file_path
         self.table_name = table_name
         self.recreate_table = recreate_table
+        # Initialize the document store
         self.document_store = None
         self._initialize_document_store()
+        # Determine if we have a CPU or GPU
         self.has_cuda = torch.cuda.is_available()
         self.torch_device = torch.device("cuda" if self.has_cuda else "cpu")
         self.component_device = Device.gpu() if self.has_cuda else Device.cpu()
+        # Initialize the query rag pipeline
         self.rag_pipeline = self._create_rag_pipeline()
 
     @component
@@ -87,7 +106,7 @@ class HaystackPgvectorDemo:
         # self.model.get_sentence_embedding_dimension()
         document_store = PgvectorDocumentStore(
             table_name=self.table_name,
-            embedding_dimension=768,
+            embedding_dimension=self.embedding_dims,
             vector_function="cosine_similarity",
             recreate_table=self.recreate_table,
             search_strategy="hnsw",
@@ -111,10 +130,8 @@ class HaystackPgvectorDemo:
         return query_pipeline
 
     def _create_rag_pipeline(self):
-        model_name = 'google/gemma-1.1-2b-it'
-
         generator = HuggingFaceLocalGenerator(
-            model=model_name,
+            model=self.llm_model_name,
             task="text-generation",
             device=ComponentDevice(self.component_device),
             generation_kwargs={
@@ -139,16 +156,16 @@ class HaystackPgvectorDemo:
         """
         prompt_builder = PromptBuilder(template=prompt_template)
 
-        rag = Pipeline()
-        rag.add_component("query_embedder", SentenceTransformersTextEmbedder())
-        rag.add_component("retriever", PgvectorEmbeddingRetriever(document_store=self.document_store, top_k=5))
-        rag.add_component("prompt_builder", prompt_builder)
-        rag.add_component("llm", generator)
+        rag_pipeline = Pipeline()
+        rag_pipeline.add_component("query_embedder", SentenceTransformersTextEmbedder())
+        rag_pipeline.add_component("retriever", PgvectorEmbeddingRetriever(document_store=self.document_store, top_k=5))
+        rag_pipeline.add_component("prompt_builder", prompt_builder)
+        rag_pipeline.add_component("llm", generator)
 
-        rag.connect("query_embedder.embedding", "retriever.query_embedding")
-        rag.connect("retriever.documents", "prompt_builder.documents")
-        rag.connect("prompt_builder.prompt", "llm.prompt")
-        return rag
+        rag_pipeline.connect("query_embedder.embedding", "retriever.query_embedding")
+        rag_pipeline.connect("retriever.documents", "prompt_builder.documents")
+        rag_pipeline.connect("prompt_builder.prompt", "llm.prompt")
+        return rag_pipeline
 
     def get_generative_answer(self, query: str):
         results = self.rag_pipeline.run({
@@ -159,8 +176,7 @@ class HaystackPgvectorDemo:
         print(answer)
 
     @staticmethod
-    def get_secret():
-        secret_file = r'D:\Documents\Secrets\huggingface_secret.txt'
+    def get_secret(secret_file: str):
         try:
             with open(secret_file, 'r') as file:
                 secret_text = file.read().strip()
@@ -174,7 +190,7 @@ class HaystackPgvectorDemo:
 
 def main():
     # Attempt to login to Hugging Face
-    secret = HaystackPgvectorDemo.get_secret()
+    secret = HaystackPgvectorDemo.get_secret(r'D:\Documents\Secrets\huggingface_secret.txt')
     # os.environ["HF_API_TOKEN"] = secret
 
     epub_file_path = "Federalist Papers.epub"
