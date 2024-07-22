@@ -1,3 +1,4 @@
+import re
 from typing import List, Optional, Dict, Any, Union
 from bs4 import BeautifulSoup
 from ebooklib import epub, ITEM_DOCUMENT
@@ -17,7 +18,7 @@ from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
 from haystack.utils import ComponentDevice, Device
 from haystack.document_stores.types import DuplicatePolicy
 
-from transformers import AutoConfig, AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizerFast
 
 
 class HaystackPgvectorDemo:
@@ -58,7 +59,21 @@ class HaystackPgvectorDemo:
         if context_length is None:
             context_length = getattr(config, 'max_sequence_length', None)
         self.context_length: Optional[int] = context_length
-        tokenizer: AutoTokenizer = AutoTokenizer.from_pretrained(self.llm_model_name)
+        self.tokenizer:  PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(self.llm_model_name)
+        # Default prompt template
+        self.prompt_template: str = """
+        <start_of_turn>user
+        Quoting the information contained in the context where possible, give a comprehensive answer to the question.
+
+        Context:
+          {% for doc in documents %}
+          {{ doc.content }}
+          {% endfor %};
+
+        Question: {{query}}<end_of_turn>
+
+        <start_of_turn>model
+        """
 
     @component
     class RemoveIllegalDocs:
@@ -115,7 +130,7 @@ class HaystackPgvectorDemo:
 
         self.document_store = document_store
 
-        if document_store.count_documents() == 0:
+        if document_store.count_documents() == 0 and self.book_file_path is not None:
             sources: List[ByteStream] = self._load_epub()
             pipeline: Pipeline = self._doc_converter_pipeline()
             results: Dict[str, Any] = pipeline.run({"converter": {"sources": sources}})
@@ -129,6 +144,45 @@ class HaystackPgvectorDemo:
         query_pipeline.connect("text_embedder.embedding", "retriever.query_embedding")
         return query_pipeline
 
+    # def calculate_max_doc_tokens(self, sample_size: int = 100) -> int:
+    #     # Query the database to get a sample of documents
+    #     documents = self.document_store.filter_documents()get_all_documents(limit=sample_size)
+    #
+    #     # Calculate token counts for each document
+    #     token_counts = [len(self.tokenizer.encode(doc.content)) for doc in documents]
+    #
+    #     # Calculate and return the average token count
+    #     return int(statistics.mean(token_counts)) if token_counts else 0
+
+    def _truncate_context(self, documents: List[Document], query: str, max_length: int) -> List[Document]:
+        # Calculate tokens for the template parts
+        template_tokens = len(self.tokenizer.encode(re.sub(r'{[^}]+}', '', self.prompt_template)))
+        query_tokens = len(self.tokenizer.encode(query))
+
+        # Reserve tokens for the query and template parts
+        reserved_tokens = template_tokens + query_tokens
+        max_context_tokens = max_length - reserved_tokens
+
+        truncated_docs = []
+        current_tokens = 0
+
+        for doc in documents:
+            doc_tokens = self.tokenizer.encode(doc.content)
+            doc_token_count = len(doc_tokens)
+
+            if current_tokens + doc_token_count <= max_context_tokens:
+                truncated_docs.append(doc)
+                current_tokens += doc_token_count
+            else:
+                remaining_tokens = max_context_tokens - current_tokens
+                if remaining_tokens > 0:
+                    truncated_tokens = doc_tokens[:remaining_tokens]
+                    truncated_content = self.tokenizer.decode(truncated_tokens)
+                    truncated_docs.append(Document(content=truncated_content))
+                break
+
+        return truncated_docs
+
     def _create_rag_pipeline(self) -> Pipeline:
         generator: HuggingFaceLocalGenerator = HuggingFaceLocalGenerator(
             model=self.llm_model_name,
@@ -141,24 +195,12 @@ class HaystackPgvectorDemo:
             })
         generator.warm_up()
 
-        prompt_template: str = """
-        <start_of_turn>user
-        Quoting the information contained in the context where possible, give a comprehensive answer to the question.
-
-        Context:
-          {% for doc in documents %}
-          {{ doc.content }}
-          {% endfor %};
-
-        Question: {{query}}<end_of_turn>
-
-        <start_of_turn>model
-        """
-        prompt_builder: PromptBuilder = PromptBuilder(template=prompt_template)
+        prompt_builder: PromptBuilder = PromptBuilder(template=self.prompt_template)
 
         rag_pipeline: Pipeline = Pipeline()
         rag_pipeline.add_component("query_embedder", SentenceTransformersTextEmbedder())
-        rag_pipeline.add_component("retriever", PgvectorEmbeddingRetriever(document_store=self.document_store, top_k=5))
+        rag_pipeline.add_component("retriever", PgvectorEmbeddingRetriever(document_store=self.document_store,
+                                                                           top_k=5))
         rag_pipeline.add_component("prompt_builder", prompt_builder)
         rag_pipeline.add_component("llm", generator)
 
@@ -167,7 +209,7 @@ class HaystackPgvectorDemo:
         rag_pipeline.connect("prompt_builder.prompt", "llm.prompt")
         return rag_pipeline
 
-    def get_generative_answer(self, query: str) -> None:
+    def generative_response(self, query: str) -> None:
         results: Dict[str, Any] = self.rag_pipeline.run({
             "query_embedder": {"text": query},
             "prompt_builder": {"query": query}
@@ -200,7 +242,7 @@ def main() -> None:
                                                            hf_password=secret)
 
     query: str = "What is the difference between a republic and a democracy?"
-    processor.get_generative_answer(query)
+    processor.generative_response(query)
 
 
 if __name__ == "__main__":
