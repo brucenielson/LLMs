@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any, Union, Tuple
 from bs4 import BeautifulSoup
 from ebooklib import epub, ITEM_DOCUMENT
 import torch
@@ -95,8 +95,8 @@ class HaystackPgvectorDemo:
     class RemoveIllegalDocs:
         @component.output_types(documents=List[Document])
         def run(self, documents: List[Document]) -> Dict[str, List[Document]]:
-            documents: List[Document] = [Document(content=doc.content) for doc in documents if doc.content is not None]
-            documents: List[Document] = list({doc.id: doc for doc in documents}.values())
+            documents = [Document(content=doc.content, meta=doc.meta) for doc in documents if doc.content is not None]
+            documents = list({doc.id: doc for doc in documents}.values())
             return {"documents": documents}
 
     @component
@@ -110,8 +110,9 @@ class HaystackPgvectorDemo:
                 }
             }
 
-    def _load_epub(self) -> List[ByteStream]:
+    def _load_epub(self) -> Tuple[List[ByteStream], List[Dict[str, str]]]:
         docs: List[ByteStream] = []
+        meta: List[Dict[str, str]] = []
         book: epub.EpubBook = epub.read_epub(self.book_file_path)
         for section_num, section in enumerate(book.get_items_of_type(ITEM_DOCUMENT)):
             section_html: str = section.get_body_content().decode('utf-8')
@@ -123,8 +124,10 @@ class HaystackPgvectorDemo:
                 p_str: str = str(p)
                 p_html: str = f"<html><head><title>Converted Epub</title></head><body>{p_str}</body></html>"
                 byte_stream: ByteStream = ByteStream(p_html.encode('utf-8'))
+                meta_node: Dict[str, str] = {"section_num": section_num, "title": title}
                 docs.append(byte_stream)
-        return docs
+                meta.append(meta_node)
+        return docs, meta
 
     def _doc_converter_pipeline(self) -> Pipeline:
         doc_convert_pipe: Pipeline = Pipeline()
@@ -160,9 +163,13 @@ class HaystackPgvectorDemo:
         self.document_store = document_store
 
         if document_store.count_documents() == 0 and self.book_file_path is not None:
-            sources: List[ByteStream] = self._load_epub()
+            sources: List[ByteStream]
+            meta: List[Dict[str, str]]
+            print("Loading document file")
+            sources, meta = self._load_epub()
+            print("Writing documents to document store")
             pipeline: Pipeline = self._doc_converter_pipeline()
-            results: Dict[str, Any] = pipeline.run({"converter": {"sources": sources}})
+            results: Dict[str, Any] = pipeline.run({"converter": {"sources": sources, "meta": meta}})
             print(f"\n\nNumber of documents: {results['writer']['documents_written']}")
 
     def _create_query_pipeline(self) -> Pipeline:
@@ -241,7 +248,7 @@ def main() -> None:
 
     epub_file_path: str = "Federalist Papers.epub"
     processor: HaystackPgvectorDemo = HaystackPgvectorDemo(table_name="federalist_papers",
-                                                           recreate_table=True,
+                                                           recreate_table=False,
                                                            book_file_path=epub_file_path,
                                                            hf_password=secret)
 
@@ -251,3 +258,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+# TODO: Fix names of default indexes so they don't clash
+# TODO: Output meta data
+# TODO: Create images of pipelines
+
