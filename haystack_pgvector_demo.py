@@ -33,6 +33,7 @@ class HaystackPgvectorDemo:
             hf_hub.login(hf_password, add_to_git_credential=True)
 
         self.text_embedder_model_name: Optional[str] = text_embedder_model_name
+        print("Starting up Text Embedder")
         self.sentence_embedder: SentenceTransformersTextEmbedder
         if self.text_embedder_model_name is not None:
             self.sentence_embedder = SentenceTransformersTextEmbedder(
@@ -45,6 +46,7 @@ class HaystackPgvectorDemo:
         self.has_cuda: bool = torch.cuda.is_available()
         self.torch_device: torch.device = torch.device("cuda" if self.has_cuda else "cpu")
         self.component_device: Device = Device.gpu() if self.has_cuda else Device.cpu()
+        print("Starting up Large Language Model")
         self.llm_model_name: str = llm_model_name
         self.generator: HuggingFaceLocalGenerator = HuggingFaceLocalGenerator(
             model=self.llm_model_name,
@@ -61,6 +63,7 @@ class HaystackPgvectorDemo:
         self.table_name: str = table_name
         self.recreate_table: bool = recreate_table
         self.document_store: Optional[PgvectorDocumentStore] = None
+        print("Initializing document store")
         self._initialize_document_store()
 
         # Default prompt template
@@ -110,9 +113,11 @@ class HaystackPgvectorDemo:
     def _load_epub(self) -> List[ByteStream]:
         docs: List[ByteStream] = []
         book: epub.EpubBook = epub.read_epub(self.book_file_path)
-        for section in book.get_items_of_type(ITEM_DOCUMENT):
+        for section_num, section in enumerate(book.get_items_of_type(ITEM_DOCUMENT)):
             section_html: str = section.get_body_content().decode('utf-8')
             section_soup: BeautifulSoup = BeautifulSoup(section_html, 'html.parser')
+            headings = [heading.get_text().strip() for heading in section_soup.find_all('h1')]
+            title = ' '.join(headings)
             paragraphs: List[Any] = section_soup.find_all('p')
             for p in paragraphs:
                 p_str: str = str(p)
@@ -191,6 +196,7 @@ class HaystackPgvectorDemo:
         return rag_pipeline
 
     def generative_response(self, query: str) -> None:
+        print("Generating Response...")
         results: Dict[str, Any] = self.rag_pipeline.run({
             "query_embedder": {"text": query},
             "prompt_builder": {"query": query}
@@ -235,7 +241,7 @@ def main() -> None:
 
     epub_file_path: str = "Federalist Papers.epub"
     processor: HaystackPgvectorDemo = HaystackPgvectorDemo(table_name="federalist_papers",
-                                                           recreate_table=False,
+                                                           recreate_table=True,
                                                            book_file_path=epub_file_path,
                                                            hf_password=secret)
 
