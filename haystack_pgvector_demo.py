@@ -18,6 +18,8 @@ from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
 from haystack.utils import ComponentDevice, Device
 from haystack.document_stores.types import DuplicatePolicy
 
+from transformers import AutoConfig, AutoTokenizer
+
 
 class HaystackPgvectorDemo:
     def __init__(self, table_name: str = 'document_store',
@@ -56,6 +58,17 @@ class HaystackPgvectorDemo:
         self.component_device = Device.gpu() if self.has_cuda else Device.cpu()
         # Initialize the query rag pipeline
         self.rag_pipeline = self._create_rag_pipeline()
+        # Get max token length for the LLM model
+        config = AutoConfig.from_pretrained(self.llm_model_name)
+        # Try to get the maximum context length
+        context_length = getattr(config, 'max_position_embeddings', None)
+        if context_length is None:
+            context_length = getattr(config, 'n_positions', None)
+        if context_length is None:
+            context_length = getattr(config, 'max_sequence_length', None)
+        self.context_length = context_length
+        # Initialize the tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(self.llm_model_name)
 
     @component
     class RemoveIllegalDocs:
@@ -130,7 +143,7 @@ class HaystackPgvectorDemo:
         return query_pipeline
 
     def _create_rag_pipeline(self):
-        generator = HuggingFaceLocalGenerator(
+        generator: HuggingFaceLocalGenerator = HuggingFaceLocalGenerator(
             model=self.llm_model_name,
             task="text-generation",
             device=ComponentDevice(self.component_device),
