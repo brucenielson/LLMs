@@ -145,46 +145,7 @@ class HaystackPgvectorDemo:
                                      PgvectorEmbeddingRetriever(document_store=self.document_store, top_k=5))
         query_pipeline.connect("text_embedder.embedding", "retriever.query_embedding")
         return query_pipeline
-
-    # def calculate_max_doc_tokens(self, sample_size: int = 100) -> int:
-    #     # Query the database to get a sample of documents
-    #     documents = self.document_store.filter_documents()get_all_documents(limit=sample_size)
-    #
-    #     # Calculate token counts for each document
-    #     token_counts = [len(self.tokenizer.encode(doc.content)) for doc in documents]
-    #
-    #     # Calculate and return the average token count
-    #     return int(statistics.mean(token_counts)) if token_counts else 0
-
-    # def _truncate_context(self, documents: List[Document], query: str, max_length: int) -> List[Document]:
-    #     # Calculate tokens for the template parts
-    #     template_tokens = len(self.tokenizer.encode(re.sub(r'{[^}]+}', '', self.prompt_template)))
-    #     query_tokens = len(self.tokenizer.encode(query))
-    #
-    #     # Reserve tokens for the query and template parts
-    #     reserved_tokens = template_tokens + query_tokens
-    #     max_context_tokens = max_length - reserved_tokens
-    #
-    #     truncated_docs = []
-    #     current_tokens = 0
-    #
-    #     for doc in documents:
-    #         doc_tokens = self.tokenizer.encode(doc.content)
-    #         doc_token_count = len(doc_tokens)
-    #
-    #         if current_tokens + doc_token_count <= max_context_tokens:
-    #             truncated_docs.append(doc)
-    #             current_tokens += doc_token_count
-    #         else:
-    #             remaining_tokens = max_context_tokens - current_tokens
-    #             if remaining_tokens > 0:
-    #                 truncated_tokens = doc_tokens[:remaining_tokens]
-    #                 truncated_content = self.tokenizer.decode(truncated_tokens)
-    #                 truncated_docs.append(Document(content=truncated_content))
-    #             break
-    #
-    #     return truncated_docs
-
+n
     def _create_rag_pipeline(self) -> Pipeline:
         generator: HuggingFaceLocalGenerator = HuggingFaceLocalGenerator(
             model=self.llm_model_name,
