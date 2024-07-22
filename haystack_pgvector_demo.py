@@ -1,5 +1,4 @@
-import os
-from typing import List
+from typing import List, Optional, Dict, Any, Union
 from bs4 import BeautifulSoup
 from ebooklib import epub, ITEM_DOCUMENT
 import torch
@@ -22,19 +21,18 @@ from transformers import AutoConfig, AutoTokenizer
 
 
 class HaystackPgvectorDemo:
-    def __init__(self, table_name: str = 'document_store',
+    def __init__(self,
+                 table_name: str = 'document_store',
                  recreate_table: bool = False,
-                 book_file_path: str = None,
-                 hf_password: str = None,
+                 book_file_path: Optional[str] = None,
+                 hf_password: Optional[str] = None,
                  llm_model_name: str = 'google/gemma-1.1-2b-it',
-                 text_embedder_model_name: str = None):
+                 text_embedder_model_name: Optional[str] = None) -> None:
 
-        # If given a Hugging Face password, login to the Hugging Face Hub
         if hf_password is not None:
             hf_hub.login(hf_password, add_to_git_credential=True)
 
-        self.text_embedder_model_name = text_embedder_model_name
-        # Initialize the SentenceTransformersTextEmbedder
+        self.text_embedder_model_name: Optional[str] = text_embedder_model_name
         self.sentence_embedder: SentenceTransformersTextEmbedder
         if self.text_embedder_model_name is not None:
             self.sentence_embedder = SentenceTransformersTextEmbedder(
@@ -42,59 +40,50 @@ class HaystackPgvectorDemo:
         else:
             self.sentence_embedder = SentenceTransformersTextEmbedder()
         self.sentence_embedder.warm_up()
-        # Get the embedding dimensions for this SentenceTransformersTextEmbedder model
-        self.embedding_dims = self.sentence_embedder.embedding_backend.model.get_sentence_embedding_dimension()
-        # Save off other parameters
-        self.llm_model_name = llm_model_name
-        self.book_file_path = book_file_path
-        self.table_name = table_name
-        self.recreate_table = recreate_table
-        # Initialize the document store
-        self.document_store = None
+        self.embedding_dims: int = self.sentence_embedder.embedding_backend.model.get_sentence_embedding_dimension()
+        self.llm_model_name: str = llm_model_name
+        self.book_file_path: Optional[str] = book_file_path
+        self.table_name: str = table_name
+        self.recreate_table: bool = recreate_table
+        self.document_store: Optional[PgvectorDocumentStore] = None
         self._initialize_document_store()
-        # Determine if we have a CPU or GPU
-        self.has_cuda = torch.cuda.is_available()
-        self.torch_device = torch.device("cuda" if self.has_cuda else "cpu")
-        self.component_device = Device.gpu() if self.has_cuda else Device.cpu()
-        # Initialize the query rag pipeline
-        self.rag_pipeline = self._create_rag_pipeline()
-        # Get max token length for the LLM model
-        config = AutoConfig.from_pretrained(self.llm_model_name)
-        # Try to get the maximum context length
-        context_length = getattr(config, 'max_position_embeddings', None)
+        self.has_cuda: bool = torch.cuda.is_available()
+        self.torch_device: torch.device = torch.device("cuda" if self.has_cuda else "cpu")
+        self.component_device: Device = Device.gpu() if self.has_cuda else Device.cpu()
+        self.rag_pipeline: Pipeline = self._create_rag_pipeline()
+        config: AutoConfig = AutoConfig.from_pretrained(self.llm_model_name)
+        context_length: Optional[int] = getattr(config, 'max_position_embeddings', None)
         if context_length is None:
             context_length = getattr(config, 'n_positions', None)
         if context_length is None:
             context_length = getattr(config, 'max_sequence_length', None)
-        self.context_length = context_length
-        # Initialize the tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(self.llm_model_name)
+        self.context_length: Optional[int] = context_length
+        tokenizer: AutoTokenizer = AutoTokenizer.from_pretrained(self.llm_model_name)
 
     @component
     class RemoveIllegalDocs:
         @component.output_types(documents=List[Document])
-        def run(self, documents: List[Document]):
-            documents = [Document(content=doc.content) for doc in documents if doc.content is not None]
-            # Removes duplicates, but this is redundant because we also use DuplicatePolicy.OVERWRITE in DocumentWriter
-            documents = list({doc.id: doc for doc in documents}.values())
+        def run(self, documents: List[Document]) -> Dict[str, List[Document]]:
+            documents: List[Document] = [Document(content=doc.content) for doc in documents if doc.content is not None]
+            documents: List[Document] = list({doc.id: doc for doc in documents}.values())
             return {"documents": documents}
 
-    def _load_epub(self):
-        docs = []
-        book = epub.read_epub(self.book_file_path)
+    def _load_epub(self) -> List[ByteStream]:
+        docs: List[ByteStream] = []
+        book: epub.EpubBook = epub.read_epub(self.book_file_path)
         for section in book.get_items_of_type(ITEM_DOCUMENT):
-            section_html = section.get_body_content().decode('utf-8')
-            section_soup = BeautifulSoup(section_html, 'html.parser')
-            paragraphs = section_soup.find_all('p')
+            section_html: str = section.get_body_content().decode('utf-8')
+            section_soup: BeautifulSoup = BeautifulSoup(section_html, 'html.parser')
+            paragraphs: List[Any] = section_soup.find_all('p')
             for p in paragraphs:
-                p_str = str(p)
-                p_html = f"<html><head><title>Converted Epub</title></head><body>{p_str}</body></html>"
-                byte_stream = ByteStream(p_html.encode('utf-8'))
+                p_str: str = str(p)
+                p_html: str = f"<html><head><title>Converted Epub</title></head><body>{p_str}</body></html>"
+                byte_stream: ByteStream = ByteStream(p_html.encode('utf-8'))
                 docs.append(byte_stream)
         return docs
 
-    def _doc_converter_pipeline(self):
-        doc_convert_pipe = Pipeline()
+    def _doc_converter_pipeline(self) -> Pipeline:
+        doc_convert_pipe: Pipeline = Pipeline()
         doc_convert_pipe.add_component("converter", HTMLToDocument())
         doc_convert_pipe.add_component("remove_illegal_docs", instance=self.RemoveIllegalDocs())
         doc_convert_pipe.add_component("cleaner", DocumentCleaner())
@@ -114,10 +103,8 @@ class HaystackPgvectorDemo:
 
         return doc_convert_pipe
 
-    def _initialize_document_store(self):
-        # TODO: calculate embedding dimension
-        # self.model.get_sentence_embedding_dimension()
-        document_store = PgvectorDocumentStore(
+    def _initialize_document_store(self) -> None:
+        document_store: PgvectorDocumentStore = PgvectorDocumentStore(
             table_name=self.table_name,
             embedding_dimension=self.embedding_dims,
             vector_function="cosine_similarity",
@@ -129,20 +116,20 @@ class HaystackPgvectorDemo:
         self.document_store = document_store
 
         if document_store.count_documents() == 0:
-            sources = self._load_epub()
-            pipeline = self._doc_converter_pipeline()
-            results = pipeline.run({"converter": {"sources": sources}})
+            sources: List[ByteStream] = self._load_epub()
+            pipeline: Pipeline = self._doc_converter_pipeline()
+            results: Dict[str, Any] = pipeline.run({"converter": {"sources": sources}})
             print(f"\n\nNumber of documents: {results['writer']['documents_written']}")
 
-    def _create_query_pipeline(self):
-        query_pipeline = Pipeline()
+    def _create_query_pipeline(self) -> Pipeline:
+        query_pipeline: Pipeline = Pipeline()
         query_pipeline.add_component("text_embedder", SentenceTransformersTextEmbedder())
         query_pipeline.add_component("retriever",
                                      PgvectorEmbeddingRetriever(document_store=self.document_store, top_k=5))
         query_pipeline.connect("text_embedder.embedding", "retriever.query_embedding")
         return query_pipeline
 
-    def _create_rag_pipeline(self):
+    def _create_rag_pipeline(self) -> Pipeline:
         generator: HuggingFaceLocalGenerator = HuggingFaceLocalGenerator(
             model=self.llm_model_name,
             task="text-generation",
@@ -154,7 +141,7 @@ class HaystackPgvectorDemo:
             })
         generator.warm_up()
 
-        prompt_template = """
+        prompt_template: str = """
         <start_of_turn>user
         Quoting the information contained in the context where possible, give a comprehensive answer to the question.
 
@@ -167,9 +154,9 @@ class HaystackPgvectorDemo:
 
         <start_of_turn>model
         """
-        prompt_builder = PromptBuilder(template=prompt_template)
+        prompt_builder: PromptBuilder = PromptBuilder(template=prompt_template)
 
-        rag_pipeline = Pipeline()
+        rag_pipeline: Pipeline = Pipeline()
         rag_pipeline.add_component("query_embedder", SentenceTransformersTextEmbedder())
         rag_pipeline.add_component("retriever", PgvectorEmbeddingRetriever(document_store=self.document_store, top_k=5))
         rag_pipeline.add_component("prompt_builder", prompt_builder)
@@ -180,39 +167,39 @@ class HaystackPgvectorDemo:
         rag_pipeline.connect("prompt_builder.prompt", "llm.prompt")
         return rag_pipeline
 
-    def get_generative_answer(self, query: str):
-        results = self.rag_pipeline.run({
+    def get_generative_answer(self, query: str) -> None:
+        results: Dict[str, Any] = self.rag_pipeline.run({
             "query_embedder": {"text": query},
             "prompt_builder": {"query": query}
         })
-        answer = results["llm"]["replies"][0]
+        answer: str = results["llm"]["replies"][0]
         print(answer)
 
     @staticmethod
-    def get_secret(secret_file: str):
+    def get_secret(secret_file: str) -> str:
         try:
             with open(secret_file, 'r') as file:
-                secret_text = file.read().strip()
+                secret_text: str = file.read().strip()
         except FileNotFoundError:
             print(f"The file '{secret_file}' does not exist.")
+            secret_text = ""
         except Exception as e:
             print(f"An error occurred: {e}")
+            secret_text = ""
 
         return secret_text
 
 
-def main():
-    # Attempt to login to Hugging Face
-    secret = HaystackPgvectorDemo.get_secret(r'D:\Documents\Secrets\huggingface_secret.txt')
-    # os.environ["HF_API_TOKEN"] = secret
+def main() -> None:
+    secret: str = HaystackPgvectorDemo.get_secret(r'D:\Documents\Secrets\huggingface_secret.txt')
 
-    epub_file_path = "Federalist Papers.epub"
-    processor = HaystackPgvectorDemo(table_name="federalist_papers",
-                                     recreate_table=False,
-                                     book_file_path=epub_file_path,
-                                     hf_password=secret)
+    epub_file_path: str = "Federalist Papers.epub"
+    processor: HaystackPgvectorDemo = HaystackPgvectorDemo(table_name="federalist_papers",
+                                                           recreate_table=False,
+                                                           book_file_path=epub_file_path,
+                                                           hf_password=secret)
 
-    query = "What is the difference between a republic and a democracy?"
+    query: str = "What is the difference between a republic and a democracy?"
     processor.get_generative_answer(query)
 
 
