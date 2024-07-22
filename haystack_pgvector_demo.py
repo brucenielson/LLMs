@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, Any, Union, Tuple
+from typing import List, Optional, Dict, Any, Tuple
 from bs4 import BeautifulSoup
 from ebooklib import epub, ITEM_DOCUMENT
 import torch
@@ -67,6 +67,7 @@ class HaystackPgvector:
         self._initialize_document_store()
 
         # Default prompt template
+        # noinspection SpellCheckingInspection
         self.prompt_template: str = """
         <start_of_turn>user
         Quoting the information contained in the context where possible, give a comprehensive answer to the question.
@@ -224,7 +225,8 @@ class HaystackPgvector:
             print(f"Content: {doc.content}")
             print("-" * 50)
 
-        # Print LLM's response
+        # Print generated response
+        # noinspection SpellCheckingInspection
         print("\nLLM's Response:")
         if merged_results["replies"]:
             answer: str = merged_results["replies"][0]
@@ -266,4 +268,5 @@ if __name__ == "__main__":
 # TODO: Fix names of default indexes so they don't clash
 # TODO: Output meta data
 # TODO: Create images of pipelines
-# TODO: Drop nearly empty sections and do section number without those sections so that they hopefully match chatper numbers
+# TODO: Drop nearly empty sections and do section number without those sections so that they hopefully
+#  match chapter numbers
