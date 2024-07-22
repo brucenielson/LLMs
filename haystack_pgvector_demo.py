@@ -1,4 +1,3 @@
-import re
 from typing import List, Optional, Dict, Any, Union
 from bs4 import BeautifulSoup
 from ebooklib import epub, ITEM_DOCUMENT
@@ -42,15 +41,27 @@ class HaystackPgvectorDemo:
             self.sentence_embedder = SentenceTransformersTextEmbedder()
         self.sentence_embedder.warm_up()
         self.embedding_dims: int = self.sentence_embedder.embedding_backend.model.get_sentence_embedding_dimension()
+        # Warm up generator
+        self.has_cuda: bool = torch.cuda.is_available()
+        self.torch_device: torch.device = torch.device("cuda" if self.has_cuda else "cpu")
+        self.component_device: Device = Device.gpu() if self.has_cuda else Device.cpu()
         self.llm_model_name: str = llm_model_name
+        self.generator: HuggingFaceLocalGenerator = HuggingFaceLocalGenerator(
+            model=self.llm_model_name,
+            task="text-generation",
+            device=ComponentDevice(self.component_device),
+            generation_kwargs={
+                "max_new_tokens": 500,
+                "temperature": 0.6,
+                "do_sample": True,
+            })
+        self.generator.warm_up()
+
         self.book_file_path: Optional[str] = book_file_path
         self.table_name: str = table_name
         self.recreate_table: bool = recreate_table
         self.document_store: Optional[PgvectorDocumentStore] = None
         self._initialize_document_store()
-        self.has_cuda: bool = torch.cuda.is_available()
-        self.torch_device: torch.device = torch.device("cuda" if self.has_cuda else "cpu")
-        self.component_device: Device = Device.gpu() if self.has_cuda else Device.cpu()
 
         # Default prompt template
         self.prompt_template: str = """
@@ -145,19 +156,8 @@ class HaystackPgvectorDemo:
                                      PgvectorEmbeddingRetriever(document_store=self.document_store, top_k=5))
         query_pipeline.connect("text_embedder.embedding", "retriever.query_embedding")
         return query_pipeline
-n
-    def _create_rag_pipeline(self) -> Pipeline:
-        generator: HuggingFaceLocalGenerator = HuggingFaceLocalGenerator(
-            model=self.llm_model_name,
-            task="text-generation",
-            device=ComponentDevice(self.component_device),
-            generation_kwargs={
-                "max_new_tokens": 500,
-                "temperature": 0.6,
-                "do_sample": True,
-            })
-        generator.warm_up()
 
+    def _create_rag_pipeline(self) -> Pipeline:
         prompt_builder: PromptBuilder = PromptBuilder(template=self.prompt_template)
 
         rag_pipeline: Pipeline = Pipeline()
@@ -165,7 +165,7 @@ n
         rag_pipeline.add_component("retriever", PgvectorEmbeddingRetriever(document_store=self.document_store,
                                                                            top_k=5))
         rag_pipeline.add_component("prompt_builder", prompt_builder)
-        rag_pipeline.add_component("llm", generator)
+        rag_pipeline.add_component("llm", self.generator)
 
         rag_pipeline.connect("query_embedder.embedding", "retriever.query_embedding")
         rag_pipeline.connect("retriever.documents", "prompt_builder.documents")
