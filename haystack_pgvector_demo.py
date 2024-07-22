@@ -20,7 +20,7 @@ from haystack.document_stores.types import DuplicatePolicy
 from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizerFast
 
 
-class HaystackPgvectorDemo:
+class HaystackPgvector:
     def __init__(self,
                  table_name: str = 'document_store',
                  recreate_table: bool = False,
@@ -215,9 +215,13 @@ class HaystackPgvectorDemo:
         print("Retrieved Documents:")
         for i, doc in enumerate(merged_results["documents"], 1):
             print(f"Document {i}:")
+            print(f"Score: {doc.score}")
+            if hasattr(doc, 'meta') and doc.meta:
+                if 'title' in doc.meta:
+                    print(f"Title: {doc.meta['title']}")
+                if 'section_num' in doc.meta:
+                    print(f"Section: {doc.meta['section_num']}")
             print(f"Content: {doc.content}")
-            if hasattr(doc, 'metadata') and doc.metadata:
-                print(f"Metadata: {doc.metadata}")
             print("-" * 50)
 
         # Print LLM's response
@@ -244,13 +248,13 @@ class HaystackPgvectorDemo:
 
 
 def main() -> None:
-    secret: str = HaystackPgvectorDemo.get_secret(r'D:\Documents\Secrets\huggingface_secret.txt')
+    secret: str = HaystackPgvector.get_secret(r'D:\Documents\Secrets\huggingface_secret.txt')
 
     epub_file_path: str = "Federalist Papers.epub"
-    processor: HaystackPgvectorDemo = HaystackPgvectorDemo(table_name="federalist_papers",
-                                                           recreate_table=False,
-                                                           book_file_path=epub_file_path,
-                                                           hf_password=secret)
+    processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
+                                                   recreate_table=False,
+                                                   book_file_path=epub_file_path,
+                                                   hf_password=secret)
 
     query: str = "What is the difference between a republic and a democracy?"
     processor.generative_response(query)
