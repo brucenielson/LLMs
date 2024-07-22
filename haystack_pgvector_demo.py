@@ -96,6 +96,17 @@ class HaystackPgvectorDemo:
             documents: List[Document] = list({doc.id: doc for doc in documents}.values())
             return {"documents": documents}
 
+    @component
+    class MergeResults:
+        @component.output_types(merged_results=Dict[str, Any])
+        def run(self, documents: List[Document], replies: List[str]) -> Dict[str, Dict[str, Any]]:
+            return {
+                "merged_results": {
+                    "documents": documents,
+                    "replies": replies
+                }
+            }
+
     def _load_epub(self) -> List[ByteStream]:
         docs: List[ByteStream] = []
         book: epub.EpubBook = epub.read_epub(self.book_file_path)
@@ -166,10 +177,17 @@ class HaystackPgvectorDemo:
                                                                            top_k=5))
         rag_pipeline.add_component("prompt_builder", prompt_builder)
         rag_pipeline.add_component("llm", self.generator)
+        # Add a new component to merge results
+        rag_pipeline.add_component("merger", self.MergeResults())
 
         rag_pipeline.connect("query_embedder.embedding", "retriever.query_embedding")
         rag_pipeline.connect("retriever.documents", "prompt_builder.documents")
         rag_pipeline.connect("prompt_builder.prompt", "llm.prompt")
+
+        # Connect the retriever and llm to the merger
+        rag_pipeline.connect("retriever.documents", "merger.documents")
+        rag_pipeline.connect("llm.replies", "merger.replies")
+
         return rag_pipeline
 
     def generative_response(self, query: str) -> None:
@@ -177,8 +195,25 @@ class HaystackPgvectorDemo:
             "query_embedder": {"text": query},
             "prompt_builder": {"query": query}
         })
-        answer: str = results["llm"]["replies"][0]
-        print(answer)
+
+        merged_results = results["merger"]["merged_results"]
+
+        # Print retrieved documents
+        print("Retrieved Documents:")
+        for i, doc in enumerate(merged_results["documents"], 1):
+            print(f"Document {i}:")
+            print(f"Content: {doc.content}")
+            if hasattr(doc, 'metadata') and doc.metadata:
+                print(f"Metadata: {doc.metadata}")
+            print("-" * 50)
+
+        # Print LLM's response
+        print("\nLLM's Response:")
+        if merged_results["replies"]:
+            answer: str = merged_results["replies"][0]
+            print(answer)
+        else:
+            print("No response was generated.")
 
     @staticmethod
     def get_secret(secret_file: str) -> str:
