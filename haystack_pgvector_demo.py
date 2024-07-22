@@ -51,15 +51,7 @@ class HaystackPgvectorDemo:
         self.has_cuda: bool = torch.cuda.is_available()
         self.torch_device: torch.device = torch.device("cuda" if self.has_cuda else "cpu")
         self.component_device: Device = Device.gpu() if self.has_cuda else Device.cpu()
-        self.rag_pipeline: Pipeline = self._create_rag_pipeline()
-        config: AutoConfig = AutoConfig.from_pretrained(self.llm_model_name)
-        context_length: Optional[int] = getattr(config, 'max_position_embeddings', None)
-        if context_length is None:
-            context_length = getattr(config, 'n_positions', None)
-        if context_length is None:
-            context_length = getattr(config, 'max_sequence_length', None)
-        self.context_length: Optional[int] = context_length
-        self.tokenizer:  PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(self.llm_model_name)
+
         # Default prompt template
         self.prompt_template: str = """
         <start_of_turn>user
@@ -74,6 +66,16 @@ class HaystackPgvectorDemo:
 
         <start_of_turn>model
         """
+
+        self.rag_pipeline: Pipeline = self._create_rag_pipeline()
+        config: AutoConfig = AutoConfig.from_pretrained(self.llm_model_name)
+        context_length: Optional[int] = getattr(config, 'max_position_embeddings', None)
+        if context_length is None:
+            context_length = getattr(config, 'n_positions', None)
+        if context_length is None:
+            context_length = getattr(config, 'max_sequence_length', None)
+        self.context_length: Optional[int] = context_length
+        self.tokenizer:  PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(self.llm_model_name)
 
     @component
     class RemoveIllegalDocs:
@@ -154,34 +156,34 @@ class HaystackPgvectorDemo:
     #     # Calculate and return the average token count
     #     return int(statistics.mean(token_counts)) if token_counts else 0
 
-    def _truncate_context(self, documents: List[Document], query: str, max_length: int) -> List[Document]:
-        # Calculate tokens for the template parts
-        template_tokens = len(self.tokenizer.encode(re.sub(r'{[^}]+}', '', self.prompt_template)))
-        query_tokens = len(self.tokenizer.encode(query))
-
-        # Reserve tokens for the query and template parts
-        reserved_tokens = template_tokens + query_tokens
-        max_context_tokens = max_length - reserved_tokens
-
-        truncated_docs = []
-        current_tokens = 0
-
-        for doc in documents:
-            doc_tokens = self.tokenizer.encode(doc.content)
-            doc_token_count = len(doc_tokens)
-
-            if current_tokens + doc_token_count <= max_context_tokens:
-                truncated_docs.append(doc)
-                current_tokens += doc_token_count
-            else:
-                remaining_tokens = max_context_tokens - current_tokens
-                if remaining_tokens > 0:
-                    truncated_tokens = doc_tokens[:remaining_tokens]
-                    truncated_content = self.tokenizer.decode(truncated_tokens)
-                    truncated_docs.append(Document(content=truncated_content))
-                break
-
-        return truncated_docs
+    # def _truncate_context(self, documents: List[Document], query: str, max_length: int) -> List[Document]:
+    #     # Calculate tokens for the template parts
+    #     template_tokens = len(self.tokenizer.encode(re.sub(r'{[^}]+}', '', self.prompt_template)))
+    #     query_tokens = len(self.tokenizer.encode(query))
+    #
+    #     # Reserve tokens for the query and template parts
+    #     reserved_tokens = template_tokens + query_tokens
+    #     max_context_tokens = max_length - reserved_tokens
+    #
+    #     truncated_docs = []
+    #     current_tokens = 0
+    #
+    #     for doc in documents:
+    #         doc_tokens = self.tokenizer.encode(doc.content)
+    #         doc_token_count = len(doc_tokens)
+    #
+    #         if current_tokens + doc_token_count <= max_context_tokens:
+    #             truncated_docs.append(doc)
+    #             current_tokens += doc_token_count
+    #         else:
+    #             remaining_tokens = max_context_tokens - current_tokens
+    #             if remaining_tokens > 0:
+    #                 truncated_tokens = doc_tokens[:remaining_tokens]
+    #                 truncated_content = self.tokenizer.decode(truncated_tokens)
+    #                 truncated_docs.append(Document(content=truncated_content))
+    #             break
+    #
+    #     return truncated_docs
 
     def _create_rag_pipeline(self) -> Pipeline:
         generator: HuggingFaceLocalGenerator = HuggingFaceLocalGenerator(
