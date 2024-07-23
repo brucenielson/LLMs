@@ -281,6 +281,7 @@ if __name__ == "__main__":
     main()
 
 # TODO: Fix names of default indexes so they don't clash
+# https://stackoverflow.com/questions/78781316/how-do-you-name-the-postgresql-indexes-when-using-haystacks-pgvectordocumentsto
 # TODO: Create images of pipelines
 # TODO: Drop nearly empty sections and do section number without those sections so that they hopefully
 #  match chapter numbers
