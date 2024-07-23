@@ -83,14 +83,10 @@ class HaystackPgvector:
         """
 
         self.rag_pipeline: Pipeline = self._create_rag_pipeline()
-        config: AutoConfig = AutoConfig.from_pretrained(self.llm_model_name)
-        context_length: Optional[int] = getattr(config, 'max_position_embeddings', None)
-        if context_length is None:
-            context_length = getattr(config, 'n_positions', None)
-        if context_length is None:
-            context_length = getattr(config, 'max_sequence_length', None)
-        self.context_length: Optional[int] = context_length
-        self.tokenizer:  PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(self.llm_model_name)
+        self.llm_context_length: Optional[int] = HaystackPgvector.get_context_length(self.llm_model_name)
+        self.text_embedder_context_length: Optional[int]
+        self.text_embedder_context_length = HaystackPgvector.get_context_length(self.sentence_embedder.model)
+        self.tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(self.llm_model_name)
 
     @component
     class RemoveIllegalDocs:
@@ -135,9 +131,9 @@ class HaystackPgvector:
         doc_convert_pipe.add_component("converter", HTMLToDocument())
         doc_convert_pipe.add_component("remove_illegal_docs", instance=self.RemoveIllegalDocs())
         doc_convert_pipe.add_component("cleaner", DocumentCleaner())
-        doc_convert_pipe.add_component("splitter", DocumentSplitter(split_by="word", split_length=400,
-                                                                    split_overlap=0,
-                                                                    split_threshold=100))
+        doc_convert_pipe.add_component("splitter", DocumentSplitter(split_by="sentence", split_length=10,
+                                                                    split_overlap=1,
+                                                                    split_threshold=2))
         doc_convert_pipe.add_component("embedder", SentenceTransformersDocumentEmbedder())
         doc_convert_pipe.add_component("writer",
                                        DocumentWriter(document_store=self.document_store,
@@ -235,6 +231,16 @@ class HaystackPgvector:
             print("No response was generated.")
 
     @staticmethod
+    def get_context_length(model_name: str) -> Optional[int]:
+        config: AutoConfig = AutoConfig.from_pretrained(model_name)
+        context_length: Optional[int] = getattr(config, 'max_position_embeddings', None)
+        if context_length is None:
+            context_length = getattr(config, 'n_positions', None)
+        if context_length is None:
+            context_length = getattr(config, 'max_sequence_length', None)
+        return context_length
+
+    @staticmethod
     def get_secret(secret_file: str) -> str:
         try:
             with open(secret_file, 'r') as file:
@@ -266,7 +272,6 @@ if __name__ == "__main__":
     main()
 
 # TODO: Fix names of default indexes so they don't clash
-# TODO: Output meta data
 # TODO: Create images of pipelines
 # TODO: Drop nearly empty sections and do section number without those sections so that they hopefully
 #  match chapter numbers
