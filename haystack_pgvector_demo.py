@@ -41,7 +41,8 @@ class HaystackPgvector:
         else:
             self.sentence_embedder = SentenceTransformersTextEmbedder()
         self.sentence_embedder.warm_up()
-        self.embedding_dims: int = self.sentence_embedder.embedding_backend.model.get_sentence_embedding_dimension()
+        self.sentence_embed_dims: int = (self.sentence_embedder.embedding_backend.model.
+                                         get_sentence_embedding_dimension())
         # Warm up generator
         self.has_cuda: bool = torch.cuda.is_available()
         self.torch_device: torch.device = torch.device("cuda" if self.has_cuda else "cpu")
@@ -58,7 +59,7 @@ class HaystackPgvector:
                 "do_sample": True,
             })
         self.generator.warm_up()
-
+        self.llm_embed_dims: int = HaystackPgvector.get_embedding_dimensions(self.llm_model_name)
         self.book_file_path: Optional[str] = book_file_path
         self.table_name: str = table_name
         self.recreate_table: bool = recreate_table
@@ -150,11 +151,11 @@ class HaystackPgvector:
     def _initialize_document_store(self) -> None:
         document_store: PgvectorDocumentStore = PgvectorDocumentStore(
             table_name=self.table_name,
-            embedding_dimension=self.embedding_dims,
+            embedding_dimension=self.sentence_embed_dims,
             vector_function="cosine_similarity",
             recreate_table=self.recreate_table,
             search_strategy="hnsw",
-            hnsw_recreate_index_if_exists=True
+            hnsw_recreate_index_if_exists=True,
         )
 
         self.document_store = document_store
@@ -241,6 +242,14 @@ class HaystackPgvector:
         return context_length
 
     @staticmethod
+    def get_embedding_dimensions(model_name: str) -> Optional[int]:
+        # TODO: Need to teste if this really gives us the embedder dims.
+        #  Works correctly for SentenceTransformersTextEmbedder
+        config: AutoConfig = AutoConfig.from_pretrained(model_name)
+        embedding_dims: Optional[int] = getattr(config, 'hidden_size', None)
+        return embedding_dims
+
+    @staticmethod
     def get_secret(secret_file: str) -> str:
         try:
             with open(secret_file, 'r') as file:
@@ -275,3 +284,8 @@ if __name__ == "__main__":
 # TODO: Create images of pipelines
 # TODO: Drop nearly empty sections and do section number without those sections so that they hopefully
 #  match chapter numbers
+
+# https://docs.haystack.deepset.ai/docs/huggingfacelocalgenerator
+# token=Secret.from_token("<your-api-key>") - fix on
+# https://www.mindfiretechnology.com/blog/archive/installing-haystack-for-pgvector-in-preparation-for-retrieval-augmented-generation/
+# https://huggingface.co/docs/transformers/en/main_classes/text_generation
