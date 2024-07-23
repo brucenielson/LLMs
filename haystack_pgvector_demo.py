@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 from ebooklib import epub, ITEM_DOCUMENT
 import torch
 import huggingface_hub as hf_hub
+from pathlib import Path
 
 from haystack import Pipeline, Document, component
 from haystack.dataclasses import ByteStream
@@ -27,7 +28,8 @@ class HaystackPgvector:
                  book_file_path: Optional[str] = None,
                  hf_password: Optional[str] = None,
                  llm_model_name: str = 'google/gemma-1.1-2b-it',
-                 text_embedder_model_name: Optional[str] = None) -> None:
+                 text_embedder_model_name: Optional[str] = None,
+                 draw_graphs=False) -> None:
 
         if hf_password is not None:
             hf_hub.login(hf_password, add_to_git_credential=True)
@@ -63,8 +65,10 @@ class HaystackPgvector:
         self.book_file_path: Optional[str] = book_file_path
         self.table_name: str = table_name
         self.recreate_table: bool = recreate_table
-        self.document_store: Optional[PgvectorDocumentStore] = None
+        self.draw_graphs: bool = draw_graphs
+
         print("Initializing document store")
+        self.document_store: Optional[PgvectorDocumentStore] = None
         self._initialize_document_store()
 
         # Default prompt template
@@ -146,6 +150,10 @@ class HaystackPgvector:
         doc_convert_pipe.connect("splitter", "embedder")
         doc_convert_pipe.connect("embedder", "writer")
 
+        if self.draw_graphs:
+            path: Path = Path("Doc Converter Pipeline.png")
+            doc_convert_pipe.draw(path)
+
         return doc_convert_pipe
 
     def _initialize_document_store(self) -> None:
@@ -170,14 +178,6 @@ class HaystackPgvector:
             results: Dict[str, Any] = pipeline.run({"converter": {"sources": sources, "meta": meta}})
             print(f"\n\nNumber of documents: {results['writer']['documents_written']}")
 
-    def _create_query_pipeline(self) -> Pipeline:
-        query_pipeline: Pipeline = Pipeline()
-        query_pipeline.add_component("text_embedder", SentenceTransformersTextEmbedder())
-        query_pipeline.add_component("retriever",
-                                     PgvectorEmbeddingRetriever(document_store=self.document_store, top_k=5))
-        query_pipeline.connect("text_embedder.embedding", "retriever.query_embedding")
-        return query_pipeline
-
     def _create_rag_pipeline(self) -> Pipeline:
         prompt_builder: PromptBuilder = PromptBuilder(template=self.prompt_template)
 
@@ -197,6 +197,10 @@ class HaystackPgvector:
         # Connect the retriever and llm to the merger
         rag_pipeline.connect("retriever.documents", "merger.documents")
         rag_pipeline.connect("llm.replies", "merger.replies")
+
+        if self.draw_graphs:
+            path: Path = Path("RAG Pipeline.png")
+            rag_pipeline.draw(path)
 
         return rag_pipeline
 
@@ -243,7 +247,7 @@ class HaystackPgvector:
 
     @staticmethod
     def get_embedding_dimensions(model_name: str) -> Optional[int]:
-        # TODO: Need to teste if this really gives us the embedder dims.
+        # TODO: Need to test if this really gives us the embedder dims.
         #  Works correctly for SentenceTransformersTextEmbedder
         config: AutoConfig = AutoConfig.from_pretrained(model_name)
         embedding_dims: Optional[int] = getattr(config, 'hidden_size', None)
@@ -271,7 +275,8 @@ def main() -> None:
     processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
                                                    recreate_table=False,
                                                    book_file_path=epub_file_path,
-                                                   hf_password=secret)
+                                                   hf_password=secret,
+                                                   draw_graphs=False)
 
     query: str = "What is the difference between a republic and a democracy?"
     processor.generative_response(query)
@@ -282,7 +287,6 @@ if __name__ == "__main__":
 
 # TODO: Fix names of default indexes so they don't clash
 # https://stackoverflow.com/questions/78781316/how-do-you-name-the-postgresql-indexes-when-using-haystacks-pgvectordocumentsto
-# TODO: Create images of pipelines
 # TODO: Drop nearly empty sections and do section number without those sections so that they hopefully
 #  match chapter numbers
 
