@@ -29,7 +29,8 @@ class HaystackPgvector:
                  hf_password: Optional[str] = None,
                  llm_model_name: str = 'google/gemma-1.1-2b-it',
                  text_embedder_model_name: Optional[str] = None,
-                 draw_graphs=False) -> None:
+                 draw_graphs=False,
+                 min_section_size: int = 1000) -> None:
 
         if hf_password is not None:
             hf_hub.login(hf_password, add_to_git_credential=True)
@@ -50,6 +51,7 @@ class HaystackPgvector:
         self.table_name: str = table_name
         self.recreate_table: bool = recreate_table
         self.draw_graphs: bool = draw_graphs
+        self.min_section_size = min_section_size
 
         print("Initializing document store")
         self.document_store: Optional[PgvectorDocumentStore] = None
@@ -114,9 +116,8 @@ class HaystackPgvector:
                 }
             }
 
-    def _load_epub(self, min_section_size: int = 1000) -> Tuple[List[ByteStream], List[Dict[str, str]]]:
+    def _load_epub(self) -> Tuple[List[ByteStream], List[Dict[str, str]]]:
         docs: List[ByteStream] = []
-        total_text: str = ""
         meta: List[Dict[str, str]] = []
         book: epub.EpubBook = epub.read_epub(self.book_file_path)
         section_num: int = 1
@@ -128,6 +129,7 @@ class HaystackPgvector:
             paragraphs: List[Any] = section_soup.find_all('p')
             temp_docs: List[ByteStream] = []
             temp_meta: List[Dict[str, str]] = []
+            total_text: str = ""
             for p in paragraphs:
                 p_str: str = str(p)
                 # Concatenate paragraphs to form a single document string
@@ -139,11 +141,10 @@ class HaystackPgvector:
                 temp_meta.append(meta_node)
 
             # If the total text length is greater than the minimum section size, add the section to the list
-            if len(total_text) > min_section_size:
-                section_num += 1
+            if len(total_text) > self.min_section_size:
                 docs.extend(temp_docs)
                 meta.extend(temp_meta)
-            total_text = ""
+                section_num += 1
         return docs, meta
 
     def _doc_converter_pipeline(self) -> Pipeline:
