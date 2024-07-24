@@ -119,7 +119,8 @@ class HaystackPgvector:
         total_text: str = ""
         meta: List[Dict[str, str]] = []
         book: epub.EpubBook = epub.read_epub(self.book_file_path)
-        for section_num, section in enumerate(book.get_items_of_type(ITEM_DOCUMENT)):
+        section_num: int = 1
+        for i, section in enumerate(book.get_items_of_type(ITEM_DOCUMENT)):
             section_html: str = section.get_body_content().decode('utf-8')
             section_soup: BeautifulSoup = BeautifulSoup(section_html, 'html.parser')
             headings = [heading.get_text().strip() for heading in section_soup.find_all('h1')]
@@ -139,6 +140,7 @@ class HaystackPgvector:
 
             # If the total text length is greater than the minimum section size, add the section to the list
             if len(total_text) > min_section_size:
+                section_num += 1
                 docs.extend(temp_docs)
                 meta.extend(temp_meta)
             total_text = ""
