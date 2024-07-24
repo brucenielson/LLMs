@@ -45,6 +45,16 @@ class HaystackPgvector:
         self.sentence_embedder.warm_up()
         self.sentence_embed_dims: int = (self.sentence_embedder.embedding_backend.model.
                                          get_sentence_embedding_dimension())
+
+        self.book_file_path: Optional[str] = book_file_path
+        self.table_name: str = table_name
+        self.recreate_table: bool = recreate_table
+        self.draw_graphs: bool = draw_graphs
+
+        print("Initializing document store")
+        self.document_store: Optional[PgvectorDocumentStore] = None
+        self._initialize_document_store()
+
         # Warm up generator
         self.has_cuda: bool = torch.cuda.is_available()
         self.torch_device: torch.device = torch.device("cuda" if self.has_cuda else "cpu")
@@ -62,14 +72,6 @@ class HaystackPgvector:
             })
         self.generator.warm_up()
         self.llm_embed_dims: int = HaystackPgvector.get_embedding_dimensions(self.llm_model_name)
-        self.book_file_path: Optional[str] = book_file_path
-        self.table_name: str = table_name
-        self.recreate_table: bool = recreate_table
-        self.draw_graphs: bool = draw_graphs
-
-        print("Initializing document store")
-        self.document_store: Optional[PgvectorDocumentStore] = None
-        self._initialize_document_store()
 
         # Default prompt template
         # noinspection SpellCheckingInspection
@@ -112,8 +114,9 @@ class HaystackPgvector:
                 }
             }
 
-    def _load_epub(self) -> Tuple[List[ByteStream], List[Dict[str, str]]]:
+    def _load_epub(self, min_section_size: int = 1000) -> Tuple[List[ByteStream], List[Dict[str, str]]]:
         docs: List[ByteStream] = []
+        total_text: str = ""
         meta: List[Dict[str, str]] = []
         book: epub.EpubBook = epub.read_epub(self.book_file_path)
         for section_num, section in enumerate(book.get_items_of_type(ITEM_DOCUMENT)):
@@ -122,13 +125,23 @@ class HaystackPgvector:
             headings = [heading.get_text().strip() for heading in section_soup.find_all('h1')]
             title = ' '.join(headings)
             paragraphs: List[Any] = section_soup.find_all('p')
+            temp_docs: List[ByteStream] = []
+            temp_meta: List[Dict[str, str]] = []
             for p in paragraphs:
                 p_str: str = str(p)
+                # Concatenate paragraphs to form a single document string
+                total_text += p_str
                 p_html: str = f"<html><head><title>Converted Epub</title></head><body>{p_str}</body></html>"
                 byte_stream: ByteStream = ByteStream(p_html.encode('utf-8'))
                 meta_node: Dict[str, str] = {"section_num": section_num, "title": title}
-                docs.append(byte_stream)
-                meta.append(meta_node)
+                temp_docs.append(byte_stream)
+                temp_meta.append(meta_node)
+
+            # If the total text length is greater than the minimum section size, add the section to the list
+            if len(total_text) > min_section_size:
+                docs.extend(temp_docs)
+                meta.extend(temp_meta)
+            total_text = ""
         return docs, meta
 
     def _doc_converter_pipeline(self) -> Pipeline:
@@ -273,7 +286,7 @@ def main() -> None:
 
     epub_file_path: str = "Federalist Papers.epub"
     processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
-                                                   recreate_table=False,
+                                                   recreate_table=True,
                                                    book_file_path=epub_file_path,
                                                    hf_password=secret,
                                                    draw_graphs=False)
