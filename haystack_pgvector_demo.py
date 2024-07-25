@@ -29,7 +29,6 @@ class HaystackPgvector:
                  hf_password: Optional[str] = None,
                  llm_model_name: str = 'google/gemma-1.1-2b-it',
                  text_embedder_model_name: Optional[str] = None,
-                 draw_graphs=False,
                  min_section_size: int = 1000) -> None:
 
         if hf_password is not None:
@@ -50,7 +49,6 @@ class HaystackPgvector:
         self.book_file_path: Optional[str] = book_file_path
         self.table_name: str = table_name
         self.recreate_table: bool = recreate_table
-        self.draw_graphs: bool = draw_graphs
         self.min_section_size = min_section_size
 
         print("Initializing document store")
@@ -91,7 +89,7 @@ class HaystackPgvector:
         <start_of_turn>model
         """
 
-        self.rag_pipeline: Pipeline = self._create_rag_pipeline()
+        self._create_rag_pipeline()
         self.llm_context_length: Optional[int] = HaystackPgvector.get_context_length(self.llm_model_name)
         self.text_embedder_context_length: Optional[int]
         self.text_embedder_context_length = HaystackPgvector.get_context_length(self.sentence_embedder.model)
@@ -147,7 +145,11 @@ class HaystackPgvector:
                 section_num += 1
         return docs, meta
 
-    def _doc_converter_pipeline(self) -> Pipeline:
+    def draw_pipelines(self) -> None:
+        self.rag_pipeline.draw(Path("RAG Pipeline.png"))
+        self.doc_convert_pipeline.draw(Path("Document Conversion Pipeline.png"))
+
+    def _doc_converter_pipeline(self) -> None:
         doc_convert_pipe: Pipeline = Pipeline()
         doc_convert_pipe.add_component("converter", HTMLToDocument())
         doc_convert_pipe.add_component("remove_illegal_docs", instance=self.RemoveIllegalDocs())
@@ -166,11 +168,7 @@ class HaystackPgvector:
         doc_convert_pipe.connect("splitter", "embedder")
         doc_convert_pipe.connect("embedder", "writer")
 
-        if self.draw_graphs:
-            path: Path = Path("Doc Converter Pipeline.png")
-            doc_convert_pipe.draw(path)
-
-        return doc_convert_pipe
+        self.doc_convert_pipeline = doc_convert_pipe
 
     def _initialize_document_store(self) -> None:
         document_store: PgvectorDocumentStore = PgvectorDocumentStore(
@@ -180,6 +178,8 @@ class HaystackPgvector:
             recreate_table=self.recreate_table,
             search_strategy="hnsw",
             hnsw_recreate_index_if_exists=True,
+            hnsw_index_name=self.table_name+"_haystack_hnsw_index",
+            keyword_index_name=self.table_name+"_haystack_keyword_index",
         )
 
         self.document_store = document_store
@@ -190,11 +190,11 @@ class HaystackPgvector:
             print("Loading document file")
             sources, meta = self._load_epub()
             print("Writing documents to document store")
-            pipeline: Pipeline = self._doc_converter_pipeline()
-            results: Dict[str, Any] = pipeline.run({"converter": {"sources": sources, "meta": meta}})
+            self._doc_converter_pipeline()
+            results: Dict[str, Any] = self.doc_convert_pipeline.run({"converter": {"sources": sources, "meta": meta}})
             print(f"\n\nNumber of documents: {results['writer']['documents_written']}")
 
-    def _create_rag_pipeline(self) -> Pipeline:
+    def _create_rag_pipeline(self) -> None:
         prompt_builder: PromptBuilder = PromptBuilder(template=self.prompt_template)
 
         rag_pipeline: Pipeline = Pipeline()
@@ -214,11 +214,7 @@ class HaystackPgvector:
         rag_pipeline.connect("retriever.documents", "merger.documents")
         rag_pipeline.connect("llm.replies", "merger.replies")
 
-        if self.draw_graphs:
-            path: Path = Path("RAG Pipeline.png")
-            rag_pipeline.draw(path)
-
-        return rag_pipeline
+        self.rag_pipeline = rag_pipeline
 
     def generative_response(self, query: str) -> None:
         print("Generating Response...")
@@ -289,10 +285,12 @@ def main() -> None:
 
     epub_file_path: str = "Federalist Papers.epub"
     processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
-                                                   recreate_table=True,
+                                                   recreate_table=False,
                                                    book_file_path=epub_file_path,
-                                                   hf_password=secret,
-                                                   draw_graphs=False)
+                                                   hf_password=secret)
+
+    # Draw images of the pipelines
+    processor.draw_pipelines()
 
     query: str = "What is the difference between a republic and a democracy?"
     processor.generative_response(query)
@@ -300,11 +298,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-# TODO: Fix names of default indexes so they don't clash
-# https://stackoverflow.com/questions/78781316/how-do-you-name-the-postgresql-indexes-when-using-haystacks-pgvectordocumentsto
-# TODO: Drop nearly empty sections and do section number without those sections so that they hopefully
-#  match chapter numbers
 
 # https://docs.haystack.deepset.ai/docs/huggingfacelocalgenerator
 # token=Secret.from_token("<your-api-key>") - fix on
