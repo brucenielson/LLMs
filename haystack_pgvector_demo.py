@@ -324,18 +324,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-# https://huggingface.co/docs/transformers/en/main_classes/text_generation
-# https://docs.haystack.deepset.ai/docs/huggingfacelocalgenerator
-# https://docs.haystack.deepset.ai/reference/audio-api - transcribe audio
-# https://docs.haystack.deepset.ai/reference/integrations-pgvector#pgvectordocumentstore - API reference
-# https://huggingface.co/docs/transformers/main/en/main_classes/text_generation - streaming
-# https://huggingface.co/docs/text-generation-inference/en/conceptual/streaming - streaming
-# https://huggingface.co/docs/transformers/en/generation_strategies - streaming
-# https://docs.haystack.deepset.ai/docs/pipelines - Pipelines
-# https://huggingface.co/docs/transformers/v4.42.0/en/pipeline_tutorial - hugging face pipelines!
-# https://colab.research.google.com/github/google/generative-ai-docs/blob/main/site/en/gemma/docs/lit_gemma.ipynb#scrollTo=pYCKXrlPH0VW - Gemma Lit
-# https://pair-code.github.io/lit/ - Lit
-# https://www.promptingguide.ai/models/gemma - Gemma prompting guide
-# https://huggingface.co/blog/how-to-generate#sampling - temperature
-# https://discuss.huggingface.co/t/what-is-temperature/11924 - temperature
