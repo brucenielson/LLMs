@@ -299,7 +299,8 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 
-# https://docs.haystack.deepset.ai/docs/huggingfacelocalgenerator
+# TODO: Is it possible to remove the need for environment variables?
 # token=Secret.from_token("<your-api-key>") - fix on
 # https://www.mindfiretechnology.com/blog/archive/installing-haystack-for-pgvector-in-preparation-for-retrieval-augmented-generation/
 # https://huggingface.co/docs/transformers/en/main_classes/text_generation
+# https://docs.haystack.deepset.ai/docs/huggingfacelocalgenerator
