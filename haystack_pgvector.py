@@ -55,8 +55,6 @@ class HaystackPgvector:
         else:
             self.sentence_embedder = SentenceTransformersTextEmbedder()
         self.sentence_embedder.warm_up()
-        self.sentence_embed_dims: int = (self.sentence_embedder.embedding_backend.model.
-                                         get_sentence_embedding_dimension())
 
         self.book_file_path: Optional[str] = book_file_path
         self.table_name: str = table_name
@@ -83,7 +81,6 @@ class HaystackPgvector:
                 "do_sample": True,
             })
         self.generator.warm_up()
-        self.llm_embed_dims: int = HaystackPgvector.get_embedding_dimensions(self.llm_model_name)
 
         # Default prompt template
         # noinspection SpellCheckingInspection
@@ -105,12 +102,27 @@ class HaystackPgvector:
         self.doc_convert_pipeline: Optional[Pipeline] = None
         # Create the RAG pipeline
         self._create_rag_pipeline()
-        # Get context lengths and embeddings sizes
-        self.llm_context_length: Optional[int] = HaystackPgvector.get_context_length(self.llm_model_name)
-        self.text_embedder_context_length: Optional[int]
-        self.text_embedder_context_length = HaystackPgvector.get_context_length(self.sentence_embedder.model)
         # Save off a tokenizer
-        self.tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(self.llm_model_name)
+        # self.tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(self.llm_model_name)
+
+    @property
+    def llm_context_length(self) -> Optional[int]:
+        return HaystackPgvector._get_context_length(self.llm_model_name)
+
+    @property
+    def llm_embed_dims(self) -> Optional[int]:
+        return HaystackPgvector._get_embedding_dimensions(self.llm_model_name)
+
+    @property
+    def sentence_context_length(self) -> Optional[int]:
+        return HaystackPgvector._get_context_length(self.sentence_embedder.model)
+
+    @property
+    def sentence_embed_dims(self) -> Optional[int]:
+        if self.sentence_embedder is not None and self.sentence_embedder.embedding_backend is not None:
+            return self.sentence_embedder.embedding_backend.model.get_sentence_embedding_dimension()
+        else:
+            return None
 
     @component
     class RemoveIllegalDocs:
@@ -274,7 +286,7 @@ class HaystackPgvector:
             print("No response was generated.")
 
     @staticmethod
-    def get_context_length(model_name: str) -> Optional[int]:
+    def _get_context_length(model_name: str) -> Optional[int]:
         config: AutoConfig = AutoConfig.from_pretrained(model_name)
         context_length: Optional[int] = getattr(config, 'max_position_embeddings', None)
         if context_length is None:
@@ -284,7 +296,7 @@ class HaystackPgvector:
         return context_length
 
     @staticmethod
-    def get_embedding_dimensions(model_name: str) -> Optional[int]:
+    def _get_embedding_dimensions(model_name: str) -> Optional[int]:
         # TODO: Need to test if this really gives us the embedder dims.
         #  Works correctly for SentenceTransformersTextEmbedder
         config: AutoConfig = AutoConfig.from_pretrained(model_name)
@@ -317,6 +329,10 @@ def main() -> None:
 
     # Draw images of the pipelines
     processor.draw_pipelines()
+    print("LLM Embedding Dims: " + str(processor.llm_embed_dims))
+    print("LLM Context Length: " + str(processor.llm_context_length))
+    print("Sentence Embedding Dims: " + str(processor.sentence_embed_dims))
+    print("Sentence Context Length: " + str(processor.sentence_context_length))
 
     query: str = "What is the difference between a republic and a democracy?"
     processor.generative_response(query)
