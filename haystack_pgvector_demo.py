@@ -303,4 +303,23 @@ if __name__ == "__main__":
 # token=Secret.from_token("<your-api-key>") - fix on
 # https://www.mindfiretechnology.com/blog/archive/installing-haystack-for-pgvector-in-preparation-for-retrieval-augmented-generation/
 # https://huggingface.co/docs/transformers/en/main_classes/text_generation
+# https://docs.haystack.deepset.ai/reference/integrations-pgvector
+# Other
 # https://docs.haystack.deepset.ai/docs/huggingfacelocalgenerator
+# https://docs.haystack.deepset.ai/reference/audio-api - transcribe audio
+# https://docs.haystack.deepset.ai/reference/integrations-pgvector#pgvectordocumentstore - API reference
+# https://docs.haystack.deepset.ai/docs/pgvectordocumentstore - main documentation
+# https://pytorch.org/get-started/locally/ - PyTorch installation
+# https://huggingface.co/docs/transformers/perf_infer_gpu_one - Hugging Face GPU
+# https://huggingface.co/docs/transformers/installation - transformer installation
+# https://huggingface.co/docs/transformers/main/en/main_classes/text_generation - streaming
+# https://huggingface.co/docs/text-generation-inference/en/conceptual/streaming - streaming
+# https://huggingface.co/docs/transformers/en/generation_strategies - streaming
+# https://docs.haystack.deepset.ai/docs/pipelines - Pipelines
+# https://huggingface.co/docs/transformers/v4.42.0/en/pipeline_tutorial - hugging face pipelines!
+# https://colab.research.google.com/github/google/generative-ai-docs/blob/main/site/en/gemma/docs/lit_gemma.ipynb#scrollTo=pYCKXrlPH0VW - Gemma Lit
+# https://pair-code.github.io/lit/ - Lit
+# https://www.promptingguide.ai/models/gemma - Gemma prompting guide
+# https://huggingface.co/blog/how-to-generate#sampling - temperature
+# https://discuss.huggingface.co/t/what-is-temperature/11924 - temperature
+
