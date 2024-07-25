@@ -17,7 +17,7 @@ from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddi
 from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
 from haystack.utils import ComponentDevice, Device
 from haystack.document_stores.types import DuplicatePolicy
-
+from haystack.utils.auth import Secret
 from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizerFast
 
 
@@ -27,12 +27,24 @@ class HaystackPgvector:
                  recreate_table: bool = False,
                  book_file_path: Optional[str] = None,
                  hf_password: Optional[str] = None,
+                 postgres_user_name: str = 'postgres',
+                 postgres_password: str = None,
+                 postgres_host: str = 'localhost',
+                 postgres_port: int = 5432,
+                 postgres_db_name: str = 'postgres',
                  llm_model_name: str = 'google/gemma-1.1-2b-it',
                  text_embedder_model_name: Optional[str] = None,
-                 min_section_size: int = 1000) -> None:
+                 min_section_size: int = 1000,
+                 ) -> None:
 
+        # Passwords and connection strings
         if hf_password is not None:
-            hf_hub.login(hf_password, add_to_git_credential=True)
+            hf_hub.login(hf_password, add_to_git_credential=False)
+        self.postgres_user_name = postgres_user_name
+        self.postgres_password = postgres_password
+        self.postgres_host = postgres_host
+        self.postgres_port = postgres_port
+        self.postgres_db_name = postgres_db_name
 
         self.text_embedder_model_name: Optional[str] = text_embedder_model_name
         print("Starting up Text Embedder")
@@ -88,11 +100,16 @@ class HaystackPgvector:
 
         <start_of_turn>model
         """
-
+        # Declare pipelines
+        self.rag_pipeline: Optional[Pipeline] = None
+        self.doc_convert_pipeline: Optional[Pipeline] = None
+        # Create the RAG pipeline
         self._create_rag_pipeline()
+        # Get context lengths and embeddings sizes
         self.llm_context_length: Optional[int] = HaystackPgvector.get_context_length(self.llm_model_name)
         self.text_embedder_context_length: Optional[int]
         self.text_embedder_context_length = HaystackPgvector.get_context_length(self.sentence_embedder.model)
+        # Save off a tokenizer
         self.tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(self.llm_model_name)
 
     @component
@@ -146,8 +163,10 @@ class HaystackPgvector:
         return docs, meta
 
     def draw_pipelines(self) -> None:
-        self.rag_pipeline.draw(Path("RAG Pipeline.png"))
-        self.doc_convert_pipeline.draw(Path("Document Conversion Pipeline.png"))
+        if self.rag_pipeline is not None:
+            self.rag_pipeline.draw(Path("RAG Pipeline.png"))
+        if self.doc_convert_pipeline is not None:
+            self.doc_convert_pipeline.draw(Path("Document Conversion Pipeline.png"))
 
     def _doc_converter_pipeline(self) -> None:
         doc_convert_pipe: Pipeline = Pipeline()
@@ -171,7 +190,14 @@ class HaystackPgvector:
         self.doc_convert_pipeline = doc_convert_pipe
 
     def _initialize_document_store(self) -> None:
+        if (self.postgres_password is None) or (self.postgres_password == ""):
+            self.postgres_password = HaystackPgvector.get_secret(r'D:\Documents\Secrets\postgres_password.txt')
+        # PG_CONN_STR="postgresql://USER:PASSWORD@HOST:PORT/DB_NAME
+        connection_str: str = (f"postgresql://{self.postgres_user_name}:{self.postgres_password}@"
+                               f"{self.postgres_host}:{self.postgres_port}/{self.postgres_db_name}")
+        connection_token: Secret = Secret.from_token(connection_str)
         document_store: PgvectorDocumentStore = PgvectorDocumentStore(
+            connection_string=connection_token,
             table_name=self.table_name,
             embedding_dimension=self.sentence_embed_dims,
             vector_function="cosine_similarity",
@@ -299,19 +325,10 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 
-# TODO: Is it possible to remove the need for environment variables?
-# token=Secret.from_token("<your-api-key>") - fix on
-# https://www.mindfiretechnology.com/blog/archive/installing-haystack-for-pgvector-in-preparation-for-retrieval-augmented-generation/
 # https://huggingface.co/docs/transformers/en/main_classes/text_generation
-# https://docs.haystack.deepset.ai/reference/integrations-pgvector
-# Other
 # https://docs.haystack.deepset.ai/docs/huggingfacelocalgenerator
 # https://docs.haystack.deepset.ai/reference/audio-api - transcribe audio
 # https://docs.haystack.deepset.ai/reference/integrations-pgvector#pgvectordocumentstore - API reference
-# https://docs.haystack.deepset.ai/docs/pgvectordocumentstore - main documentation
-# https://pytorch.org/get-started/locally/ - PyTorch installation
-# https://huggingface.co/docs/transformers/perf_infer_gpu_one - Hugging Face GPU
-# https://huggingface.co/docs/transformers/installation - transformer installation
 # https://huggingface.co/docs/transformers/main/en/main_classes/text_generation - streaming
 # https://huggingface.co/docs/text-generation-inference/en/conceptual/streaming - streaming
 # https://huggingface.co/docs/transformers/en/generation_strategies - streaming
@@ -322,4 +339,3 @@ if __name__ == "__main__":
 # https://www.promptingguide.ai/models/gemma - Gemma prompting guide
 # https://huggingface.co/blog/how-to-generate#sampling - temperature
 # https://discuss.huggingface.co/t/what-is-temperature/11924 - temperature
-
