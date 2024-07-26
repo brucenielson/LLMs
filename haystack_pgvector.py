@@ -108,6 +108,7 @@ class HaystackPgvector:
 
         print("Warming up Text Embedder")
         self._embedder_model_name: Optional[str] = embedder_model_name
+        # TODO: Use Cuda if possible
         self._sentence_embedder: SentenceTransformersTextEmbedder
         if self._embedder_model_name is not None:
             self._sentence_embedder = SentenceTransformersTextEmbedder(
@@ -118,6 +119,7 @@ class HaystackPgvector:
 
         print("Initializing document store")
         self._document_store: Optional[PgvectorDocumentStore] = None
+        self._doc_convert_pipeline: Optional[Pipeline] = None
         self._initialize_document_store()
 
         # Warm up _llm_generator
@@ -153,9 +155,8 @@ class HaystackPgvector:
         <start_of_turn>model
         """
 
-        # Declare pipelines
+        # Declare rag pipeline
         self._rag_pipeline: Optional[Pipeline] = None
-        self._doc_convert_pipeline: Optional[Pipeline] = None
         # Create the RAG pipeline
         self._create_rag_pipeline()
         # Save off a tokenizer
@@ -349,6 +350,7 @@ class HaystackPgvector:
         doc_convert_pipe.add_component("splitter", DocumentSplitter(split_by="sentence", split_length=10,
                                                                     split_overlap=1,
                                                                     split_threshold=2))
+        # TODO: Use Cuda if possible
         doc_convert_pipe.add_component("embedder", SentenceTransformersDocumentEmbedder())
         doc_convert_pipe.add_component("writer",
                                        DocumentWriter(document_store=self._document_store,
@@ -392,6 +394,7 @@ class HaystackPgvector:
         prompt_builder: PromptBuilder = PromptBuilder(template=self._prompt_template)
 
         rag_pipeline: Pipeline = Pipeline()
+        # Use Cuda is possible
         rag_pipeline.add_component("query_embedder", SentenceTransformersTextEmbedder())
         rag_pipeline.add_component("retriever", PgvectorEmbeddingRetriever(document_store=self._document_store,
                                                                            top_k=5))
@@ -416,7 +419,7 @@ def main() -> None:
 
     epub_file_path: str = "Federalist Papers.epub"
     rag_processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
-                                                       recreate_table=False,
+                                                       recreate_table=True,
                                                        book_file_path=epub_file_path,
                                                        hf_password=secret)
 
