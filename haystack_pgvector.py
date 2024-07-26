@@ -23,7 +23,7 @@ from transformers import AutoConfig  # , AutoTokenizer, PreTrainedTokenizerFast
 
 class HaystackPgvector:
     def __init__(self,
-                 table_name: str = '_document_store',
+                 table_name: str = 'haystack_pgvector_docs',
                  recreate_table: bool = False,
                  book_file_path: Optional[str] = None,
                  hf_password: Optional[str] = None,
@@ -35,6 +35,8 @@ class HaystackPgvector:
                  llm_model_name: str = 'google/gemma-1.1-2b-it',
                  embedder_model_name: Optional[str] = None,
                  min_section_size: int = 1000,
+                 max_new_tokens: int = 500,
+                 temperature: float = 0.6,
                  ) -> None:
 
         # Instance variables
@@ -42,6 +44,8 @@ class HaystackPgvector:
         self._table_name: str = table_name
         self._recreate_table: bool = recreate_table
         self._min_section_size = min_section_size
+        self._max_new_tokens: int = max_new_tokens
+        self._temperature: float = temperature
 
         # Passwords and connection strings
         if hf_password is not None:
@@ -49,8 +53,8 @@ class HaystackPgvector:
         if (postgres_password is None) or (postgres_password == ""):
             postgres_password = HaystackPgvector.get_secret(r'D:\Documents\Secrets\postgres_password.txt')
         # PG_CONN_STR="postgresql://USER:PASSWORD@HOST:PORT/DB_NAME
-        self.postgres_connection_str: str = (f"postgresql://{postgres_user_name}:{postgres_password}@"
-                                             f"{postgres_host}:{postgres_port}/{postgres_db_name}")
+        self._postgres_connection_str: str = (f"postgresql://{postgres_user_name}:{postgres_password}@"
+                                              f"{postgres_host}:{postgres_port}/{postgres_db_name}")
 
         print("Warming up Text Embedder")
         self._embedder_model_name: Optional[str] = embedder_model_name
@@ -77,8 +81,8 @@ class HaystackPgvector:
             task="text-generation",
             device=ComponentDevice(self._component_device),
             generation_kwargs={
-                "max_new_tokens": 500,
-                "temperature": 0.6,
+                "max_new_tokens": self._max_new_tokens,
+                "temperature": self._temperature,
                 "do_sample": True,
             })
         self._llm_generator.warm_up()
@@ -127,7 +131,7 @@ class HaystackPgvector:
             return None
 
     @component
-    class RemoveIllegalDocs:
+    class _RemoveIllegalDocs:
         @component.output_types(documents=List[Document])
         def run(self, documents: List[Document]) -> Dict[str, List[Document]]:
             documents = [Document(content=doc.content, meta=doc.meta) for doc in documents if doc.content is not None]
@@ -135,7 +139,7 @@ class HaystackPgvector:
             return {"documents": documents}
 
     @component
-    class MergeResults:
+    class _MergeResults:
         @component.output_types(merged_results=Dict[str, Any])
         def run(self, documents: List[Document], replies: List[str]) -> Dict[str, Dict[str, Any]]:
             return {
@@ -185,7 +189,7 @@ class HaystackPgvector:
     def _doc_converter_pipeline(self) -> None:
         doc_convert_pipe: Pipeline = Pipeline()
         doc_convert_pipe.add_component("converter", HTMLToDocument())
-        doc_convert_pipe.add_component("remove_illegal_docs", instance=self.RemoveIllegalDocs())
+        doc_convert_pipe.add_component("remove_illegal_docs", instance=self._RemoveIllegalDocs())
         doc_convert_pipe.add_component("cleaner", DocumentCleaner())
         doc_convert_pipe.add_component("splitter", DocumentSplitter(split_by="sentence", split_length=10,
                                                                     split_overlap=1,
@@ -204,7 +208,7 @@ class HaystackPgvector:
         self._doc_convert_pipeline = doc_convert_pipe
 
     def _initialize_document_store(self) -> None:
-        connection_token: Secret = Secret.from_token(self.postgres_connection_str)
+        connection_token: Secret = Secret.from_token(self._postgres_connection_str)
         document_store: PgvectorDocumentStore = PgvectorDocumentStore(
             connection_string=connection_token,
             table_name=self._table_name,
@@ -239,7 +243,7 @@ class HaystackPgvector:
         rag_pipeline.add_component("prompt_builder", prompt_builder)
         rag_pipeline.add_component("llm", self._llm_generator)
         # Add a new component to merge results
-        rag_pipeline.add_component("merger", self.MergeResults())
+        rag_pipeline.add_component("merger", self._MergeResults())
 
         rag_pipeline.connect("query_embedder.embedding", "retriever.query_embedding")
         rag_pipeline.connect("retriever.documents", "prompt_builder.documents")
@@ -251,7 +255,7 @@ class HaystackPgvector:
 
         self._rag_pipeline = rag_pipeline
 
-    def generative_response(self, query: str) -> None:
+    def generate_response(self, query: str) -> None:
         print("Generating Response...")
         results: Dict[str, Any] = self._rag_pipeline.run({
             "query_embedder": {"text": query},
@@ -319,20 +323,20 @@ def main() -> None:
     secret: str = HaystackPgvector.get_secret(r'D:\Documents\Secrets\huggingface_secret.txt')
 
     epub_file_path: str = "Federalist Papers.epub"
-    processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
-                                                   recreate_table=False,
-                                                   book_file_path=epub_file_path,
-                                                   hf_password=secret)
+    rag_processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
+                                                       recreate_table=False,
+                                                       book_file_path=epub_file_path,
+                                                       hf_password=secret)
 
     # Draw images of the pipelines
-    processor.draw_pipelines()
-    print("LLM Embedder Dims: " + str(processor.llm_embed_dims))
-    print("LLM Context Length: " + str(processor.llm_context_length))
-    print("Sentence Embedder Dims: " + str(processor.sentence_embed_dims))
-    print("Sentence Embedder Context Length: " + str(processor.sentence_context_length))
+    rag_processor.draw_pipelines()
+    print("LLM Embedder Dims: " + str(rag_processor.llm_embed_dims))
+    print("LLM Context Length: " + str(rag_processor.llm_context_length))
+    print("Sentence Embedder Dims: " + str(rag_processor.sentence_embed_dims))
+    print("Sentence Embedder Context Length: " + str(rag_processor.sentence_context_length))
 
     query: str = "What is the difference between a republic and a democracy?"
-    processor.generative_response(query)
+    rag_processor.generate_response(query)
 
 
 if __name__ == "__main__":
