@@ -419,7 +419,7 @@ def main() -> None:
 
     epub_file_path: str = "Federalist Papers.epub"
     rag_processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
-                                                       recreate_table=True,
+                                                       recreate_table=False,
                                                        book_file_path=epub_file_path,
                                                        hf_password=secret)
 
@@ -436,3 +436,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+# TODO: Be sure that if there is no federalist_papers table, it is created even when recreate_table is False.
