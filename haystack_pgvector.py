@@ -1,10 +1,11 @@
-from typing import List, Optional, Dict, Any, Tuple
-from bs4 import BeautifulSoup
-from ebooklib import epub, ITEM_DOCUMENT
+# Hugging Face and Pytorch imports
 import torch
 import huggingface_hub as hf_hub
-from pathlib import Path
-
+from transformers import AutoConfig  # , AutoTokenizer, PreTrainedTokenizerFast
+# EPUB imports
+from bs4 import BeautifulSoup
+from ebooklib import epub, ITEM_DOCUMENT
+# Haystack imports
 from haystack import Pipeline, Document, component
 from haystack.dataclasses import ByteStream
 from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
@@ -18,10 +19,40 @@ from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
 from haystack.utils import ComponentDevice, Device
 from haystack.document_stores.types import DuplicatePolicy
 from haystack.utils.auth import Secret
-from transformers import AutoConfig  # , AutoTokenizer, PreTrainedTokenizerFast
+# Other imports
+from typing import List, Optional, Dict, Any, Tuple
+from pathlib import Path
 
 
 class HaystackPgvector:
+    """
+    A class that implements a Retrieval-Augmented Generation (RAG) system using Haystack and Pgvector.
+
+    This class provides functionality to set up and use a RAG system for question answering
+    tasks on a given corpus of text, currently from an EPUB file. It handles document
+    indexing, embedding, retrieval, and generation of responses using a language model.
+
+    The system uses a Postgres database with the Pgvector extension for efficient
+    similarity search of embedded documents.
+
+    Public Methods:
+        draw_pipelines(): Visualize the RAG and document conversion pipelines.
+        generate_response(query: str): Generate a response to a given query.
+
+    Properties:
+        llm_context_length: Get the context length of the language model.
+        llm_embed_dims: Get the embedding dimensions of the language model.
+        sentence_context_length: Get the context length of the sentence embedder.
+        sentence_embed_dims: Get the embedding dimensions of the sentence embedder.
+
+    Static Methods:
+        get_secret(secret_file: str): Read a hugging face password secret from a file.
+
+    The class handles initialization of the document store, embedding models,
+    and language models internally. It also manages the creation and execution
+    of the document processing and RAG pipelines.
+    """
+
     def __init__(self,
                  table_name: str = 'haystack_pgvector_docs',
                  recreate_table: bool = False,
@@ -38,6 +69,25 @@ class HaystackPgvector:
                  max_new_tokens: int = 500,
                  temperature: float = 0.6,
                  ) -> None:
+        """
+        Initialize the HaystackPgvector instance.
+
+        Args:
+            table_name (str): Name of the table in the Pgvector database.
+            recreate_table (bool): Whether to recreate the database table.
+            book_file_path (Optional[str]): Path to the EPUB file to be processed.
+            hf_password (Optional[str]): Password for Hugging Face authentication.
+            postgres_user_name (str): Username for Postgres database.
+            postgres_password (str): Password for Postgres database.
+            postgres_host (str): Host address for Postgres database.
+            postgres_port (int): Port number for Postgres database.
+            postgres_db_name (str): Name of the Postgres database.
+            llm_model_name (str): Name of the language model to use.
+            embedder_model_name (Optional[str]): Name of the embedding model to use.
+            min_section_size (int): Minimum size of a section to be considered for indexing.
+            max_new_tokens (int): Maximum number of new tokens to generate in responses.
+            temperature (float): Temperature parameter for text generation.
+        """
 
         # Instance variables
         self._book_file_path: Optional[str] = book_file_path
@@ -113,22 +163,115 @@ class HaystackPgvector:
 
     @property
     def llm_context_length(self) -> Optional[int]:
+        """
+        Get the context length of the language model.
+
+        Returns:
+            Optional[int]: The maximum context length of the language model, if available.
+        """
         return HaystackPgvector._get_context_length(self._llm_model_name)
 
     @property
     def llm_embed_dims(self) -> Optional[int]:
+        """
+        Get the embedding dimensions of the language model.
+
+        Returns:
+            Optional[int]: The embedding dimensions of the language model, if available.
+        """
         return HaystackPgvector._get_embedding_dimensions(self._llm_model_name)
 
     @property
     def sentence_context_length(self) -> Optional[int]:
+        """
+        Get the context length of the sentence embedder model.
+
+        Returns:
+            Optional[int]: The maximum context length of the sentence embedder model, if available.
+        """
         return HaystackPgvector._get_context_length(self._sentence_embedder.model)
 
     @property
     def sentence_embed_dims(self) -> Optional[int]:
+        """
+        Get the embedding dimensions of the sentence embedder model.
+
+        Returns:
+            Optional[int]: The embedding dimensions of the sentence embedder model, if available.
+        """
         if self._sentence_embedder is not None and self._sentence_embedder.embedding_backend is not None:
             return self._sentence_embedder.embedding_backend.model.get_sentence_embedding_dimension()
         else:
             return None
+
+    def draw_pipelines(self) -> None:
+        """
+        Draw and save visual representations of the RAG and document conversion pipelines.
+        """
+        if self._rag_pipeline is not None:
+            self._rag_pipeline.draw(Path("RAG Pipeline.png"))
+        if self._doc_convert_pipeline is not None:
+            self._doc_convert_pipeline.draw(Path("Document Conversion Pipeline.png"))
+
+    def generate_response(self, query: str) -> None:
+        """
+        Generate a response to a given query using the RAG pipeline.
+
+        Args:
+            query (str): The input query to process.
+        """
+        print("Generating Response...")
+        results: Dict[str, Any] = self._rag_pipeline.run({
+            "query_embedder": {"text": query},
+            "prompt_builder": {"query": query}
+        })
+
+        merged_results = results["merger"]["merged_results"]
+
+        # Print retrieved documents
+        print("Retrieved Documents:")
+        for i, doc in enumerate(merged_results["documents"], 1):
+            print(f"Document {i}:")
+            print(f"Score: {doc.score}")
+            if hasattr(doc, 'meta') and doc.meta:
+                if 'title' in doc.meta:
+                    print(f"Title: {doc.meta['title']}")
+                if 'section_num' in doc.meta:
+                    print(f"Section: {doc.meta['section_num']}")
+            print(f"Content: {doc.content}")
+            print("-" * 50)
+
+        # Print generated response
+        # noinspection SpellCheckingInspection
+        print("\nLLM's Response:")
+        if merged_results["replies"]:
+            answer: str = merged_results["replies"][0]
+            print(answer)
+        else:
+            print("No response was generated.")
+
+    @staticmethod
+    def get_secret(secret_file: str) -> str:
+        """
+        Read a secret from a file.
+
+        Args:
+            secret_file (str): Path to the file containing the secret.
+
+        Returns:
+            str: The content of the secret file, or an empty string if an error occurs.
+        """
+        try:
+            with open(secret_file, 'r') as file:
+                secret_text: str = file.read().strip()
+        except FileNotFoundError:
+            print(f"The file '{secret_file}' does not exist.")
+            secret_text = ""
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            secret_text = ""
+
+        return secret_text
 
     @component
     class _RemoveIllegalDocs:
@@ -148,6 +291,24 @@ class HaystackPgvector:
                     "replies": replies
                 }
             }
+
+    @staticmethod
+    def _get_context_length(model_name: str) -> Optional[int]:
+        config: AutoConfig = AutoConfig.from_pretrained(model_name)
+        context_length: Optional[int] = getattr(config, 'max_position_embeddings', None)
+        if context_length is None:
+            context_length = getattr(config, 'n_positions', None)
+        if context_length is None:
+            context_length = getattr(config, 'max_sequence_length', None)
+        return context_length
+
+    @staticmethod
+    def _get_embedding_dimensions(model_name: str) -> Optional[int]:
+        # TODO: Need to test if this really gives us the embedder dims.
+        #  Works correctly for SentenceTransformersTextEmbedder
+        config: AutoConfig = AutoConfig.from_pretrained(model_name)
+        embedding_dims: Optional[int] = getattr(config, 'hidden_size', None)
+        return embedding_dims
 
     def _load_epub(self) -> Tuple[List[ByteStream], List[Dict[str, str]]]:
         docs: List[ByteStream] = []
@@ -179,12 +340,6 @@ class HaystackPgvector:
                 meta.extend(temp_meta)
                 section_num += 1
         return docs, meta
-
-    def draw_pipelines(self) -> None:
-        if self._rag_pipeline is not None:
-            self._rag_pipeline.draw(Path("RAG Pipeline.png"))
-        if self._doc_convert_pipeline is not None:
-            self._doc_convert_pipeline.draw(Path("Document Conversion Pipeline.png"))
 
     def _doc_converter_pipeline(self) -> None:
         doc_convert_pipe: Pipeline = Pipeline()
@@ -254,69 +409,6 @@ class HaystackPgvector:
         rag_pipeline.connect("llm.replies", "merger.replies")
 
         self._rag_pipeline = rag_pipeline
-
-    def generate_response(self, query: str) -> None:
-        print("Generating Response...")
-        results: Dict[str, Any] = self._rag_pipeline.run({
-            "query_embedder": {"text": query},
-            "prompt_builder": {"query": query}
-        })
-
-        merged_results = results["merger"]["merged_results"]
-
-        # Print retrieved documents
-        print("Retrieved Documents:")
-        for i, doc in enumerate(merged_results["documents"], 1):
-            print(f"Document {i}:")
-            print(f"Score: {doc.score}")
-            if hasattr(doc, 'meta') and doc.meta:
-                if 'title' in doc.meta:
-                    print(f"Title: {doc.meta['title']}")
-                if 'section_num' in doc.meta:
-                    print(f"Section: {doc.meta['section_num']}")
-            print(f"Content: {doc.content}")
-            print("-" * 50)
-
-        # Print generated response
-        # noinspection SpellCheckingInspection
-        print("\nLLM's Response:")
-        if merged_results["replies"]:
-            answer: str = merged_results["replies"][0]
-            print(answer)
-        else:
-            print("No response was generated.")
-
-    @staticmethod
-    def _get_context_length(model_name: str) -> Optional[int]:
-        config: AutoConfig = AutoConfig.from_pretrained(model_name)
-        context_length: Optional[int] = getattr(config, 'max_position_embeddings', None)
-        if context_length is None:
-            context_length = getattr(config, 'n_positions', None)
-        if context_length is None:
-            context_length = getattr(config, 'max_sequence_length', None)
-        return context_length
-
-    @staticmethod
-    def _get_embedding_dimensions(model_name: str) -> Optional[int]:
-        # TODO: Need to test if this really gives us the embedder dims.
-        #  Works correctly for SentenceTransformersTextEmbedder
-        config: AutoConfig = AutoConfig.from_pretrained(model_name)
-        embedding_dims: Optional[int] = getattr(config, 'hidden_size', None)
-        return embedding_dims
-
-    @staticmethod
-    def get_secret(secret_file: str) -> str:
-        try:
-            with open(secret_file, 'r') as file:
-                secret_text: str = file.read().strip()
-        except FileNotFoundError:
-            print(f"The file '{secret_file}' does not exist.")
-            secret_text = ""
-        except Exception as e:
-            print(f"An error occurred: {e}")
-            secret_text = ""
-
-        return secret_text
 
 
 def main() -> None:
