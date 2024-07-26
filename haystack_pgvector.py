@@ -18,12 +18,12 @@ from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
 from haystack.utils import ComponentDevice, Device
 from haystack.document_stores.types import DuplicatePolicy
 from haystack.utils.auth import Secret
-from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizerFast
+from transformers import AutoConfig  # , AutoTokenizer, PreTrainedTokenizerFast
 
 
 class HaystackPgvector:
     def __init__(self,
-                 table_name: str = 'document_store',
+                 table_name: str = '_document_store',
                  recreate_table: bool = False,
                  book_file_path: Optional[str] = None,
                  hf_password: Optional[str] = None,
@@ -33,58 +33,59 @@ class HaystackPgvector:
                  postgres_port: int = 5432,
                  postgres_db_name: str = 'postgres',
                  llm_model_name: str = 'google/gemma-1.1-2b-it',
-                 text_embedder_model_name: Optional[str] = None,
+                 embedder_model_name: Optional[str] = None,
                  min_section_size: int = 1000,
                  ) -> None:
+
+        # Instance variables
+        self._book_file_path: Optional[str] = book_file_path
+        self._table_name: str = table_name
+        self._recreate_table: bool = recreate_table
+        self._min_section_size = min_section_size
 
         # Passwords and connection strings
         if hf_password is not None:
             hf_hub.login(hf_password, add_to_git_credential=False)
-        self.postgres_user_name = postgres_user_name
-        self.postgres_password = postgres_password
-        self.postgres_host = postgres_host
-        self.postgres_port = postgres_port
-        self.postgres_db_name = postgres_db_name
+        if (postgres_password is None) or (postgres_password == ""):
+            postgres_password = HaystackPgvector.get_secret(r'D:\Documents\Secrets\postgres_password.txt')
+        # PG_CONN_STR="postgresql://USER:PASSWORD@HOST:PORT/DB_NAME
+        self.postgres_connection_str: str = (f"postgresql://{postgres_user_name}:{postgres_password}@"
+                                             f"{postgres_host}:{postgres_port}/{postgres_db_name}")
 
-        self.text_embedder_model_name: Optional[str] = text_embedder_model_name
-        print("Starting up Text Embedder")
-        self.sentence_embedder: SentenceTransformersTextEmbedder
-        if self.text_embedder_model_name is not None:
-            self.sentence_embedder = SentenceTransformersTextEmbedder(
-                model_name_or_path=self.text_embedder_model_name)
+        print("Warming up Text Embedder")
+        self._embedder_model_name: Optional[str] = embedder_model_name
+        self._sentence_embedder: SentenceTransformersTextEmbedder
+        if self._embedder_model_name is not None:
+            self._sentence_embedder = SentenceTransformersTextEmbedder(
+                model_name_or_path=self._embedder_model_name)
         else:
-            self.sentence_embedder = SentenceTransformersTextEmbedder()
-        self.sentence_embedder.warm_up()
-
-        self.book_file_path: Optional[str] = book_file_path
-        self.table_name: str = table_name
-        self.recreate_table: bool = recreate_table
-        self.min_section_size = min_section_size
+            self._sentence_embedder = SentenceTransformersTextEmbedder()
+        self._sentence_embedder.warm_up()
 
         print("Initializing document store")
-        self.document_store: Optional[PgvectorDocumentStore] = None
+        self._document_store: Optional[PgvectorDocumentStore] = None
         self._initialize_document_store()
 
-        # Warm up generator
-        self.has_cuda: bool = torch.cuda.is_available()
-        self.torch_device: torch.device = torch.device("cuda" if self.has_cuda else "cpu")
-        self.component_device: Device = Device.gpu() if self.has_cuda else Device.cpu()
-        print("Starting up Large Language Model")
-        self.llm_model_name: str = llm_model_name
-        self.generator: HuggingFaceLocalGenerator = HuggingFaceLocalGenerator(
-            model=self.llm_model_name,
+        # Warm up _llm_generator
+        self._has_cuda: bool = torch.cuda.is_available()
+        self._torch_device: torch.device = torch.device("cuda" if self._has_cuda else "cpu")
+        self._component_device: Device = Device.gpu() if self._has_cuda else Device.cpu()
+        print("Warming up Large Language Model")
+        self._llm_model_name: str = llm_model_name
+        self._llm_generator: HuggingFaceLocalGenerator = HuggingFaceLocalGenerator(
+            model=self._llm_model_name,
             task="text-generation",
-            device=ComponentDevice(self.component_device),
+            device=ComponentDevice(self._component_device),
             generation_kwargs={
                 "max_new_tokens": 500,
                 "temperature": 0.6,
                 "do_sample": True,
             })
-        self.generator.warm_up()
+        self._llm_generator.warm_up()
 
         # Default prompt template
         # noinspection SpellCheckingInspection
-        self.prompt_template: str = """
+        self._prompt_template: str = """
         <start_of_turn>user
         Quoting the information contained in the context where possible, give a comprehensive answer to the question.
 
@@ -97,30 +98,31 @@ class HaystackPgvector:
 
         <start_of_turn>model
         """
+
         # Declare pipelines
-        self.rag_pipeline: Optional[Pipeline] = None
-        self.doc_convert_pipeline: Optional[Pipeline] = None
+        self._rag_pipeline: Optional[Pipeline] = None
+        self._doc_convert_pipeline: Optional[Pipeline] = None
         # Create the RAG pipeline
         self._create_rag_pipeline()
         # Save off a tokenizer
-        # self.tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(self.llm_model_name)
+        # self.tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(self._llm_model_name)
 
     @property
     def llm_context_length(self) -> Optional[int]:
-        return HaystackPgvector._get_context_length(self.llm_model_name)
+        return HaystackPgvector._get_context_length(self._llm_model_name)
 
     @property
     def llm_embed_dims(self) -> Optional[int]:
-        return HaystackPgvector._get_embedding_dimensions(self.llm_model_name)
+        return HaystackPgvector._get_embedding_dimensions(self._llm_model_name)
 
     @property
     def sentence_context_length(self) -> Optional[int]:
-        return HaystackPgvector._get_context_length(self.sentence_embedder.model)
+        return HaystackPgvector._get_context_length(self._sentence_embedder.model)
 
     @property
     def sentence_embed_dims(self) -> Optional[int]:
-        if self.sentence_embedder is not None and self.sentence_embedder.embedding_backend is not None:
-            return self.sentence_embedder.embedding_backend.model.get_sentence_embedding_dimension()
+        if self._sentence_embedder is not None and self._sentence_embedder.embedding_backend is not None:
+            return self._sentence_embedder.embedding_backend.model.get_sentence_embedding_dimension()
         else:
             return None
 
@@ -146,7 +148,7 @@ class HaystackPgvector:
     def _load_epub(self) -> Tuple[List[ByteStream], List[Dict[str, str]]]:
         docs: List[ByteStream] = []
         meta: List[Dict[str, str]] = []
-        book: epub.EpubBook = epub.read_epub(self.book_file_path)
+        book: epub.EpubBook = epub.read_epub(self._book_file_path)
         section_num: int = 1
         for i, section in enumerate(book.get_items_of_type(ITEM_DOCUMENT)):
             section_html: str = section.get_body_content().decode('utf-8')
@@ -168,17 +170,17 @@ class HaystackPgvector:
                 temp_meta.append(meta_node)
 
             # If the total text length is greater than the minimum section size, add the section to the list
-            if len(total_text) > self.min_section_size:
+            if len(total_text) > self._min_section_size:
                 docs.extend(temp_docs)
                 meta.extend(temp_meta)
                 section_num += 1
         return docs, meta
 
     def draw_pipelines(self) -> None:
-        if self.rag_pipeline is not None:
-            self.rag_pipeline.draw(Path("RAG Pipeline.png"))
-        if self.doc_convert_pipeline is not None:
-            self.doc_convert_pipeline.draw(Path("Document Conversion Pipeline.png"))
+        if self._rag_pipeline is not None:
+            self._rag_pipeline.draw(Path("RAG Pipeline.png"))
+        if self._doc_convert_pipeline is not None:
+            self._doc_convert_pipeline.draw(Path("Document Conversion Pipeline.png"))
 
     def _doc_converter_pipeline(self) -> None:
         doc_convert_pipe: Pipeline = Pipeline()
@@ -190,7 +192,7 @@ class HaystackPgvector:
                                                                     split_threshold=2))
         doc_convert_pipe.add_component("embedder", SentenceTransformersDocumentEmbedder())
         doc_convert_pipe.add_component("writer",
-                                       DocumentWriter(document_store=self.document_store,
+                                       DocumentWriter(document_store=self._document_store,
                                                       policy=DuplicatePolicy.OVERWRITE))
 
         doc_convert_pipe.connect("converter", "remove_illegal_docs")
@@ -199,48 +201,43 @@ class HaystackPgvector:
         doc_convert_pipe.connect("splitter", "embedder")
         doc_convert_pipe.connect("embedder", "writer")
 
-        self.doc_convert_pipeline = doc_convert_pipe
+        self._doc_convert_pipeline = doc_convert_pipe
 
     def _initialize_document_store(self) -> None:
-        if (self.postgres_password is None) or (self.postgres_password == ""):
-            self.postgres_password = HaystackPgvector.get_secret(r'D:\Documents\Secrets\postgres_password.txt')
-        # PG_CONN_STR="postgresql://USER:PASSWORD@HOST:PORT/DB_NAME
-        connection_str: str = (f"postgresql://{self.postgres_user_name}:{self.postgres_password}@"
-                               f"{self.postgres_host}:{self.postgres_port}/{self.postgres_db_name}")
-        connection_token: Secret = Secret.from_token(connection_str)
+        connection_token: Secret = Secret.from_token(self.postgres_connection_str)
         document_store: PgvectorDocumentStore = PgvectorDocumentStore(
             connection_string=connection_token,
-            table_name=self.table_name,
+            table_name=self._table_name,
             embedding_dimension=self.sentence_embed_dims,
             vector_function="cosine_similarity",
-            recreate_table=self.recreate_table,
+            recreate_table=self._recreate_table,
             search_strategy="hnsw",
             hnsw_recreate_index_if_exists=True,
-            hnsw_index_name=self.table_name+"_haystack_hnsw_index",
-            keyword_index_name=self.table_name+"_haystack_keyword_index",
+            hnsw_index_name=self._table_name + "_haystack_hnsw_index",
+            keyword_index_name=self._table_name + "_haystack_keyword_index",
         )
 
-        self.document_store = document_store
+        self._document_store = document_store
 
-        if document_store.count_documents() == 0 and self.book_file_path is not None:
+        if document_store.count_documents() == 0 and self._book_file_path is not None:
             sources: List[ByteStream]
             meta: List[Dict[str, str]]
             print("Loading document file")
             sources, meta = self._load_epub()
             print("Writing documents to document store")
             self._doc_converter_pipeline()
-            results: Dict[str, Any] = self.doc_convert_pipeline.run({"converter": {"sources": sources, "meta": meta}})
+            results: Dict[str, Any] = self._doc_convert_pipeline.run({"converter": {"sources": sources, "meta": meta}})
             print(f"\n\nNumber of documents: {results['writer']['documents_written']}")
 
     def _create_rag_pipeline(self) -> None:
-        prompt_builder: PromptBuilder = PromptBuilder(template=self.prompt_template)
+        prompt_builder: PromptBuilder = PromptBuilder(template=self._prompt_template)
 
         rag_pipeline: Pipeline = Pipeline()
         rag_pipeline.add_component("query_embedder", SentenceTransformersTextEmbedder())
-        rag_pipeline.add_component("retriever", PgvectorEmbeddingRetriever(document_store=self.document_store,
+        rag_pipeline.add_component("retriever", PgvectorEmbeddingRetriever(document_store=self._document_store,
                                                                            top_k=5))
         rag_pipeline.add_component("prompt_builder", prompt_builder)
-        rag_pipeline.add_component("llm", self.generator)
+        rag_pipeline.add_component("llm", self._llm_generator)
         # Add a new component to merge results
         rag_pipeline.add_component("merger", self.MergeResults())
 
@@ -252,11 +249,11 @@ class HaystackPgvector:
         rag_pipeline.connect("retriever.documents", "merger.documents")
         rag_pipeline.connect("llm.replies", "merger.replies")
 
-        self.rag_pipeline = rag_pipeline
+        self._rag_pipeline = rag_pipeline
 
     def generative_response(self, query: str) -> None:
         print("Generating Response...")
-        results: Dict[str, Any] = self.rag_pipeline.run({
+        results: Dict[str, Any] = self._rag_pipeline.run({
             "query_embedder": {"text": query},
             "prompt_builder": {"query": query}
         })
@@ -329,10 +326,10 @@ def main() -> None:
 
     # Draw images of the pipelines
     processor.draw_pipelines()
-    print("LLM Embedding Dims: " + str(processor.llm_embed_dims))
+    print("LLM Embedder Dims: " + str(processor.llm_embed_dims))
     print("LLM Context Length: " + str(processor.llm_context_length))
-    print("Sentence Embedding Dims: " + str(processor.sentence_embed_dims))
-    print("Sentence Context Length: " + str(processor.sentence_context_length))
+    print("Sentence Embedder Dims: " + str(processor.sentence_embed_dims))
+    print("Sentence Embedder Context Length: " + str(processor.sentence_context_length))
 
     query: str = "What is the difference between a republic and a democracy?"
     processor.generative_response(query)
