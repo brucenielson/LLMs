@@ -14,13 +14,14 @@ from haystack.components.converters import HTMLToDocument
 from haystack.components.writers import DocumentWriter
 from haystack.components.builders import PromptBuilder
 from haystack.components.generators import HuggingFaceLocalGenerator
+from haystack_integrations.components.generators.google_ai import GoogleAIGeminiGenerator
 from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
 from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
 from haystack.utils import ComponentDevice, Device
 from haystack.document_stores.types import DuplicatePolicy
 from haystack.utils.auth import Secret
 # Other imports
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple, Union
 from pathlib import Path
 
 
@@ -57,7 +58,7 @@ class HaystackPgvector:
                  table_name: str = 'haystack_pgvector_docs',
                  recreate_table: bool = False,
                  book_file_path: Optional[str] = None,
-                 hf_password: Optional[str] = None,
+                 llm_password: Optional[str] = None,
                  postgres_user_name: str = 'postgres',
                  postgres_password: str = None,
                  postgres_host: str = 'localhost',
@@ -76,7 +77,7 @@ class HaystackPgvector:
             table_name (str): Name of the table in the Pgvector database.
             recreate_table (bool): Whether to recreate the database table.
             book_file_path (Optional[str]): Path to the EPUB file to be processed.
-            hf_password (Optional[str]): Password for Hugging Face authentication.
+            llm_password (Optional[str]): Password for Hugging Face authentication.
             postgres_user_name (str): Username for Postgres database.
             postgres_password (str): Password for Postgres database.
             postgres_host (str): Host address for Postgres database.
@@ -98,8 +99,8 @@ class HaystackPgvector:
         self._temperature: float = temperature
 
         # Passwords and connection strings
-        if hf_password is not None:
-            hf_hub.login(hf_password, add_to_git_credential=False)
+        if llm_password is not None and llm_model_name != "google-gemini":
+            hf_hub.login(llm_password, add_to_git_credential=False)
         if (postgres_password is None) or (postgres_password == ""):
             postgres_password = HaystackPgvector.get_secret(r'D:\Documents\Secrets\postgres_password.txt')
         # PG_CONN_STR="postgresql://USER:PASSWORD@HOST:PORT/DB_NAME
@@ -128,16 +129,23 @@ class HaystackPgvector:
         self._component_device: Device = Device.gpu() if self._has_cuda else Device.cpu()
         print("Warming up Large Language Model")
         self._llm_model_name: str = llm_model_name
-        self._llm_generator: HuggingFaceLocalGenerator = HuggingFaceLocalGenerator(
-            model=self._llm_model_name,
-            task="text-generation",
-            device=ComponentDevice(self._component_device),
-            generation_kwargs={
-                "max_new_tokens": self._max_new_tokens,
-                "temperature": self._temperature,
-                "do_sample": True,
-            })
-        self._llm_generator.warm_up()
+
+        if self._llm_model_name == "google-gemini":
+            self._llm_generator: GoogleAIGeminiGenerator = GoogleAIGeminiGenerator(
+                model="gemini-pro",
+                api_key=Secret.from_token(llm_password)
+            )
+        else:
+            self._llm_generator: HuggingFaceLocalGenerator = HuggingFaceLocalGenerator(
+                model=self._llm_model_name,
+                task="text-generation",
+                device=ComponentDevice(self._component_device),
+                generation_kwargs={
+                    "max_new_tokens": self._max_new_tokens,
+                    "temperature": self._temperature,
+                    "do_sample": True,
+                })
+            self._llm_generator.warm_up()
 
         # Default prompt template
         # noinspection SpellCheckingInspection
@@ -170,6 +178,8 @@ class HaystackPgvector:
         Returns:
             Optional[int]: The maximum context length of the language model, if available.
         """
+        if self._llm_model_name == "google-gemini":
+            return None
         return HaystackPgvector._get_context_length(self._llm_model_name)
 
     @property
@@ -180,6 +190,8 @@ class HaystackPgvector:
         Returns:
             Optional[int]: The embedding dimensions of the language model, if available.
         """
+        if self._llm_model_name == "google-gemini":
+            return None
         return HaystackPgvector._get_embedding_dimensions(self._llm_model_name)
 
     @property
@@ -285,7 +297,7 @@ class HaystackPgvector:
     @component
     class _MergeResults:
         @component.output_types(merged_results=Dict[str, Any])
-        def run(self, documents: List[Document], replies: List[str]) -> Dict[str, Dict[str, Any]]:
+        def run(self, documents: List[Document], replies: List[Union[str, Dict[str, str]]]) -> Dict[str, Dict[str, Any]]:
             return {
                 "merged_results": {
                     "documents": documents,
@@ -405,7 +417,10 @@ class HaystackPgvector:
 
         rag_pipeline.connect("query_embedder.embedding", "retriever.query_embedding")
         rag_pipeline.connect("retriever.documents", "prompt_builder.documents")
-        rag_pipeline.connect("prompt_builder.prompt", "llm.prompt")
+        if self._llm_model_name == "google-gemini":
+            rag_pipeline.connect("prompt_builder", "llm")
+        else:
+            rag_pipeline.connect("prompt_builder.prompt", "llm.prompt")
 
         # Connect the retriever and llm to the merger
         rag_pipeline.connect("retriever.documents", "merger.documents")
@@ -415,13 +430,15 @@ class HaystackPgvector:
 
 
 def main() -> None:
-    secret: str = HaystackPgvector.get_secret(r'D:\Documents\Secrets\huggingface_secret.txt')
+    # secret: str = HaystackPgvector.get_secret(r'D:\Documents\Secrets\huggingface_secret.txt')
+    secret: str = HaystackPgvector.get_secret(r'D:\Documents\Secrets\gemini_secret.txt')
 
     epub_file_path: str = "Federalist Papers.epub"
     rag_processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
                                                        recreate_table=False,
                                                        book_file_path=epub_file_path,
-                                                       hf_password=secret)
+                                                       llm_model_name="google-gemini",
+                                                       llm_password=secret)
 
     # Draw images of the pipelines
     rag_processor.draw_pipelines()
