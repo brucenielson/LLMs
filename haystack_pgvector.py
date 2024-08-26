@@ -25,6 +25,182 @@ from typing import List, Optional, Dict, Any, Tuple, Union
 from pathlib import Path
 
 
+def get_secret(secret_file: str) -> str:
+    """
+    Read a secret from a file.
+
+    Args:
+        secret_file (str): Path to the file containing the secret.
+
+    Returns:
+        str: The content of the secret file, or an empty string if an error occurs.
+    """
+    try:
+        with open(secret_file, 'r') as file:
+            secret_text: str = file.read().strip()
+    except FileNotFoundError:
+        print(f"The file '{secret_file}' does not exist.")
+        secret_text = ""
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        raise e
+
+    return secret_text
+
+
+hf_secret: str = get_secret(r'D:\Documents\Secrets\huggingface_secret.txt')  # Put your path here
+google_secret: str = get_secret(r'D:\Documents\Secrets\gemini_secret.txt')  # Put your path here
+
+class LanguageModel:
+    """
+    A class that represents a Large Language Model (LLM) generator.
+
+    This class provides functionality to generate text using a large language model
+    that allows any supported model to have a similar interface for text generation.
+    This allows a Hugging Face model and a Google AI model to be used interchangeably.
+    In the future I may add additional options for other language models.
+
+    Public Methods:
+        generate(prompt: str): Generate text using the given prompt.
+
+    The class handles the initialization of the language model and the generation
+    of text using the model internally. It also manages the configuration of the
+    generation parameters.
+    """
+    def __init__(self, verbose: bool = False) -> None:
+        """
+        Initialize the LanguageModel instance.
+
+        """
+        self._language_model = None
+        self._verbose: bool = verbose
+
+    def generate(self, prompt: str) -> str:
+        """
+        Generate text using the given prompt.
+
+        Args:
+            prompt (str): The prompt to use for text generation.
+
+        Returns:
+            str: The generated text from the language model.
+        """
+        # To be implemented in a subclass
+        raise NotImplementedError("generate method must be implemented in a subclass.")
+
+    def embed(self, text: str) -> torch.Tensor:
+        """
+        Generate an embedding for the given text.
+
+        Args:
+            text (str): The text to embed.
+
+        Returns:
+            torch.Tensor: The embedding tensor for the text.
+        """
+        # To be implemented in a subclass
+        raise NotImplementedError("embed method must be implemented in a subclass.")
+
+    @property
+    def context_length(self) -> Optional[int]:
+        """
+        Get the context length of the language model.
+
+        Returns:
+            Optional[int]: The maximum context length of the language model, if available. Otherwise, returns None.
+        """
+        return None
+
+    @property
+    def embedding_dimensions(self) -> Optional[int]:
+        """
+        Get the embedding dimensions of the language model.
+
+        Returns:
+            Optional[int]: The embedding dimensions of the language model, if available. Otherwise, returns None.
+        """
+        return None
+
+
+class HuggingFaceModel(LanguageModel):
+    """
+    A class that represents a Hugging Face Large Language Model (LLM) generator.
+
+    Public Methods:
+        generate(prompt: str): Generate text using the given prompt.
+    """
+
+    def __init__(self,
+                 model_name: str = 'google/gemma-1.1-2b-it',
+                 task: str = "text-generation",
+                 max_new_tokens: int = 500,
+                 hf_password: Optional[str] = None,
+                 temperature: float = 0.6) -> None:
+        """
+        Initialize the LanguageModel instance.
+
+        Args:
+            model_name (str): Name of the language model to use.
+            task (str): The task to perform using the language model.
+        """
+        super().__init__()
+
+        self._max_new_tokens: int = max_new_tokens
+        self._temperature: float = temperature
+        self._model_name: str = model_name
+        self._task: str = task
+
+        if hf_password is not None:
+            hf_hub.login(hf_password, add_to_git_credential=False)
+
+        self._has_cuda: bool = torch.cuda.is_available()
+        self._torch_device: torch.device = torch.device("cuda" if self._has_cuda else "cpu")
+        self._component_device: Device = Device.gpu() if self._has_cuda else Device.cpu()
+        if self._verbose:
+            print("Warming up Large Language Model")
+
+        self._model: HuggingFaceLocalGenerator = HuggingFaceLocalGenerator(
+            model=self._model_name,
+            task="text-generation",
+            device=ComponentDevice(self._component_device),
+            generation_kwargs={
+                "max_new_tokens": self._max_new_tokens,
+                "temperature": self._temperature,
+                "do_sample": True,
+            })
+        self._model.warm_up()
+
+    def generate(self, prompt: str) -> str:
+        """
+        Generate text using the given prompt.
+
+        Args:
+            prompt (str): The prompt to use for text generation.
+
+        Returns:
+            str: The generated text from the language model.
+        """
+        raise NotImplementedError("generate method must be implemented in a subclass.")
+
+    @property
+    def context_length(self) -> Optional[int]:
+        config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
+        context_length: Optional[int] = getattr(config, 'max_position_embeddings', None)
+        if context_length is None:
+            context_length = getattr(config, 'n_positions', None)
+        if context_length is None:
+            context_length = getattr(config, 'max_sequence_length', None)
+        return context_length
+
+    @property
+    def embedding_dimensions(self) -> Optional[int]:
+        # TODO: Need to test if this really gives us the embedder dims.
+        #  Works correctly for SentenceTransformersTextEmbedder
+        config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
+        embedding_dims: Optional[int] = getattr(config, 'hidden_size', None)
+        return embedding_dims
+
+
 class HaystackPgvector:
     """
     A class that implements a Retrieval-Augmented Generation (RAG) system using Haystack and Pgvector.
@@ -45,9 +221,6 @@ class HaystackPgvector:
         llm_embed_dims: Get the embedding dimensions of the language model.
         sentence_context_length: Get the context length of the sentence embedder.
         sentence_embed_dims: Get the embedding dimensions of the sentence embedder.
-
-    Static Methods:
-        get_secret(secret_file: str): Read a hugging face password secret from a file.
 
     The class handles initialization of the document store, embedding models,
     and language models internally. It also manages the creation and execution
@@ -102,7 +275,7 @@ class HaystackPgvector:
         if llm_password is not None and llm_model_name != "google-gemini":
             hf_hub.login(llm_password, add_to_git_credential=False)
         if (postgres_password is None) or (postgres_password == ""):
-            postgres_password = HaystackPgvector.get_secret(r'D:\Documents\Secrets\postgres_password.txt')
+            postgres_password = get_secret(r'D:\Documents\Secrets\postgres_password.txt')
         # PG_CONN_STR="postgresql://USER:PASSWORD@HOST:PORT/DB_NAME
         self._postgres_connection_str: str = (f"postgresql://{postgres_user_name}:{postgres_password}@"
                                               f"{postgres_host}:{postgres_port}/{postgres_db_name}")
@@ -123,7 +296,7 @@ class HaystackPgvector:
         self._doc_convert_pipeline: Optional[Pipeline] = None
         self._initialize_document_store()
 
-        # Warm up _llm_generator
+        # Warm up _model
         self._has_cuda: bool = torch.cuda.is_available()
         self._torch_device: torch.device = torch.device("cuda" if self._has_cuda else "cpu")
         self._component_device: Device = Device.gpu() if self._has_cuda else Device.cpu()
@@ -263,29 +436,6 @@ class HaystackPgvector:
         else:
             print("No response was generated.")
 
-    @staticmethod
-    def get_secret(secret_file: str) -> str:
-        """
-        Read a secret from a file.
-
-        Args:
-            secret_file (str): Path to the file containing the secret.
-
-        Returns:
-            str: The content of the secret file, or an empty string if an error occurs.
-        """
-        try:
-            with open(secret_file, 'r') as file:
-                secret_text: str = file.read().strip()
-        except FileNotFoundError:
-            print(f"The file '{secret_file}' does not exist.")
-            secret_text = ""
-        except Exception as e:
-            print(f"An error occurred: {e}")
-            secret_text = ""
-
-        return secret_text
-
     @component
     class _RemoveIllegalDocs:
         @component.output_types(documents=List[Document])
@@ -297,7 +447,8 @@ class HaystackPgvector:
     @component
     class _MergeResults:
         @component.output_types(merged_results=Dict[str, Any])
-        def run(self, documents: List[Document], replies: List[Union[str, Dict[str, str]]]) -> Dict[str, Dict[str, Any]]:
+        def run(self, documents: List[Document],
+                replies: List[Union[str, Dict[str, str]]]) -> Dict[str, Dict[str, Any]]:
             return {
                 "merged_results": {
                     "documents": documents,
@@ -417,10 +568,7 @@ class HaystackPgvector:
 
         rag_pipeline.connect("query_embedder.embedding", "retriever.query_embedding")
         rag_pipeline.connect("retriever.documents", "prompt_builder.documents")
-        if self._llm_model_name == "google-gemini":
-            rag_pipeline.connect("prompt_builder", "llm")
-        else:
-            rag_pipeline.connect("prompt_builder.prompt", "llm.prompt")
+        rag_pipeline.connect("prompt_builder", "llm")
 
         # Connect the retriever and llm to the merger
         rag_pipeline.connect("retriever.documents", "merger.documents")
@@ -430,15 +578,12 @@ class HaystackPgvector:
 
 
 def main() -> None:
-    # secret: str = HaystackPgvector.get_secret(r'D:\Documents\Secrets\huggingface_secret.txt')
-    secret: str = HaystackPgvector.get_secret(r'D:\Documents\Secrets\gemini_secret.txt')
-
     epub_file_path: str = "Federalist Papers.epub"
     rag_processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
                                                        recreate_table=False,
                                                        book_file_path=epub_file_path,
                                                        llm_model_name="google-gemini",
-                                                       llm_password=secret)
+                                                       llm_password=google_secret)
 
     # Draw images of the pipelines
     rag_processor.draw_pipelines()
