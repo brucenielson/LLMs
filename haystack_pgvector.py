@@ -51,6 +51,7 @@ def get_secret(secret_file: str) -> str:
 hf_secret: str = get_secret(r'D:\Documents\Secrets\huggingface_secret.txt')  # Put your path here
 google_secret: str = get_secret(r'D:\Documents\Secrets\gemini_secret.txt')  # Put your path here
 
+
 class LanguageModel:
     """
     A class that represents a Large Language Model (LLM) generator.
