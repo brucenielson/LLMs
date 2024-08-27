@@ -89,6 +89,18 @@ class LanguageModel:
         # To be implemented in a subclass
         raise NotImplementedError("embed method must be implemented in a subclass.")
 
+    def generate(self, prompt: str) -> str:
+        """
+        Generate text using the given prompt.
+
+        Args:
+            prompt (str): The prompt to use for text generation.
+
+        Returns:
+            str: The generated text.
+        """
+        raise NotImplementedError("embed method must be implemented in a subclass.")
+
     @property
     def context_length(self) -> Optional[int]:
         """
@@ -124,7 +136,6 @@ class HuggingFaceModel(LanguageModel):
     """
     A class that represents a Hugging Face Large Language Model (LLM) generator.
 
-    Public Methods:
     """
 
     def __init__(self,
@@ -190,8 +201,6 @@ class GoogleGeminiModel(LanguageModel):
     """
     A class that represents a Google AI Large Language Model (LLM) generator.
 
-    Public Methods:
-        generate(prompt: str): Generate text using the given prompt.
     """
 
     def __init__(self, password: Optional[str] = None) -> None:
