@@ -73,21 +73,8 @@ class LanguageModel:
         Initialize the LanguageModel instance.
 
         """
-        self._language_model = None
+        self._model: Optional[Union[HuggingFaceLocalGenerator, GoogleAIGeminiGenerator]] = None
         self._verbose: bool = verbose
-
-    def generate(self, prompt: str) -> str:
-        """
-        Generate text using the given prompt.
-
-        Args:
-            prompt (str): The prompt to use for text generation.
-
-        Returns:
-            str: The generated text from the language model.
-        """
-        # To be implemented in a subclass
-        raise NotImplementedError("generate method must be implemented in a subclass.")
 
     def embed(self, text: str) -> torch.Tensor:
         """
@@ -122,20 +109,29 @@ class LanguageModel:
         """
         return None
 
+    @property
+    def generator_component(self) -> Union[HuggingFaceLocalGenerator, GoogleAIGeminiGenerator]:
+        """
+        Get the generator component of the language model.
+
+        Returns:
+            Union[HuggingFaceLocalGenerator, GoogleAIGeminiGenerator]: The generator component of the language model
+        """
+        return self._model
+
 
 class HuggingFaceModel(LanguageModel):
     """
     A class that represents a Hugging Face Large Language Model (LLM) generator.
 
     Public Methods:
-        generate(prompt: str): Generate text using the given prompt.
     """
 
     def __init__(self,
                  model_name: str = 'google/gemma-1.1-2b-it',
                  task: str = "text-generation",
                  max_new_tokens: int = 500,
-                 hf_password: Optional[str] = None,
+                 password: Optional[str] = None,
                  temperature: float = 0.6) -> None:
         """
         Initialize the LanguageModel instance.
@@ -151,8 +147,8 @@ class HuggingFaceModel(LanguageModel):
         self._model_name: str = model_name
         self._task: str = task
 
-        if hf_password is not None:
-            hf_hub.login(hf_password, add_to_git_credential=False)
+        if password is not None:
+            hf_hub.login(password, add_to_git_credential=False)
 
         self._has_cuda: bool = torch.cuda.is_available()
         self._torch_device: torch.device = torch.device("cuda" if self._has_cuda else "cpu")
@@ -171,18 +167,6 @@ class HuggingFaceModel(LanguageModel):
             })
         self._model.warm_up()
 
-    def generate(self, prompt: str) -> str:
-        """
-        Generate text using the given prompt.
-
-        Args:
-            prompt (str): The prompt to use for text generation.
-
-        Returns:
-            str: The generated text from the language model.
-        """
-        raise NotImplementedError("generate method must be implemented in a subclass.")
-
     @property
     def context_length(self) -> Optional[int]:
         config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
@@ -200,6 +184,29 @@ class HuggingFaceModel(LanguageModel):
         config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
         embedding_dims: Optional[int] = getattr(config, 'hidden_size', None)
         return embedding_dims
+
+
+class GoogleGeminiModel(LanguageModel):
+    """
+    A class that represents a Google AI Large Language Model (LLM) generator.
+
+    Public Methods:
+        generate(prompt: str): Generate text using the given prompt.
+    """
+
+    def __init__(self, password: Optional[str] = None) -> None:
+        """
+        Initialize the LanguageModel instance.
+
+        """
+        super().__init__()
+        if self._verbose:
+            print("Warming up Large Language Model")
+
+        self._model = GoogleAIGeminiGenerator(
+            model="gemini-pro",
+            api_key=Secret.from_token(password)
+        )
 
 
 class HaystackPgvector:
@@ -232,17 +239,14 @@ class HaystackPgvector:
                  table_name: str = 'haystack_pgvector_docs',
                  recreate_table: bool = False,
                  book_file_path: Optional[str] = None,
-                 llm_password: Optional[str] = None,
                  postgres_user_name: str = 'postgres',
                  postgres_password: str = None,
                  postgres_host: str = 'localhost',
                  postgres_port: int = 5432,
                  postgres_db_name: str = 'postgres',
-                 llm_model_name: str = 'google/gemma-1.1-2b-it',
-                 embedder_model_name: Optional[str] = None,
                  min_section_size: int = 1000,
-                 max_new_tokens: int = 500,
-                 temperature: float = 0.6,
+                 llm_model: LanguageModel = None,
+                 embedder_model_name: Optional[str] = None,
                  ) -> None:
         """
         Initialize the HaystackPgvector instance.
@@ -251,17 +255,14 @@ class HaystackPgvector:
             table_name (str): Name of the table in the Pgvector database.
             recreate_table (bool): Whether to recreate the database table.
             book_file_path (Optional[str]): Path to the EPUB file to be processed.
-            llm_password (Optional[str]): Password for Hugging Face authentication.
             postgres_user_name (str): Username for Postgres database.
             postgres_password (str): Password for Postgres database.
             postgres_host (str): Host address for Postgres database.
             postgres_port (int): Port number for Postgres database.
             postgres_db_name (str): Name of the Postgres database.
-            llm_model_name (str): Name of the language model to use.
+            llm_model (LanguageModel): Language model to use for text generation.
             embedder_model_name (Optional[str]): Name of the embedding model to use.
             min_section_size (int): Minimum size of a section to be considered for indexing.
-            max_new_tokens (int): Maximum number of new tokens to generate in responses.
-            temperature (float): Temperature parameter for text generation.
         """
 
         # Instance variables
@@ -269,12 +270,8 @@ class HaystackPgvector:
         self._table_name: str = table_name
         self._recreate_table: bool = recreate_table
         self._min_section_size = min_section_size
-        self._max_new_tokens: int = max_new_tokens
-        self._temperature: float = temperature
 
         # Passwords and connection strings
-        if llm_password is not None and llm_model_name != "google-gemini":
-            hf_hub.login(llm_password, add_to_git_credential=False)
         if (postgres_password is None) or (postgres_password == ""):
             postgres_password = get_secret(r'D:\Documents\Secrets\postgres_password.txt')
         # PG_CONN_STR="postgresql://USER:PASSWORD@HOST:PORT/DB_NAME
@@ -298,28 +295,9 @@ class HaystackPgvector:
         self._initialize_document_store()
 
         # Warm up _model
-        self._has_cuda: bool = torch.cuda.is_available()
-        self._torch_device: torch.device = torch.device("cuda" if self._has_cuda else "cpu")
-        self._component_device: Device = Device.gpu() if self._has_cuda else Device.cpu()
-        print("Warming up Large Language Model")
-        self._llm_model_name: str = llm_model_name
-
-        if self._llm_model_name == "google-gemini":
-            self._llm_generator: GoogleAIGeminiGenerator = GoogleAIGeminiGenerator(
-                model="gemini-pro",
-                api_key=Secret.from_token(llm_password)
-            )
-        else:
-            self._llm_generator: HuggingFaceLocalGenerator = HuggingFaceLocalGenerator(
-                model=self._llm_model_name,
-                task="text-generation",
-                device=ComponentDevice(self._component_device),
-                generation_kwargs={
-                    "max_new_tokens": self._max_new_tokens,
-                    "temperature": self._temperature,
-                    "do_sample": True,
-                })
-            self._llm_generator.warm_up()
+        if llm_model is None:
+            llm_model = HuggingFaceModel(password=hf_secret)
+        self._llm_model: LanguageModel = llm_model
 
         # Default prompt template
         # noinspection SpellCheckingInspection
@@ -343,30 +321,6 @@ class HaystackPgvector:
         self._create_rag_pipeline()
         # Save off a tokenizer
         # self.tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(self._llm_model_name)
-
-    @property
-    def llm_context_length(self) -> Optional[int]:
-        """
-        Get the context length of the language model.
-
-        Returns:
-            Optional[int]: The maximum context length of the language model, if available.
-        """
-        if self._llm_model_name == "google-gemini":
-            return None
-        return HaystackPgvector._get_context_length(self._llm_model_name)
-
-    @property
-    def llm_embed_dims(self) -> Optional[int]:
-        """
-        Get the embedding dimensions of the language model.
-
-        Returns:
-            Optional[int]: The embedding dimensions of the language model, if available.
-        """
-        if self._llm_model_name == "google-gemini":
-            return None
-        return HaystackPgvector._get_embedding_dimensions(self._llm_model_name)
 
     @property
     def sentence_context_length(self) -> Optional[int]:
@@ -563,7 +517,7 @@ class HaystackPgvector:
         rag_pipeline.add_component("retriever", PgvectorEmbeddingRetriever(document_store=self._document_store,
                                                                            top_k=5))
         rag_pipeline.add_component("prompt_builder", prompt_builder)
-        rag_pipeline.add_component("llm", self._llm_generator)
+        rag_pipeline.add_component("llm", self._llm_model.generator_component)
         # Add a new component to merge results
         rag_pipeline.add_component("merger", self._MergeResults())
 
@@ -580,16 +534,17 @@ class HaystackPgvector:
 
 def main() -> None:
     epub_file_path: str = "Federalist Papers.epub"
+    model: LanguageModel = HuggingFaceModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
+    # model: LanguageModel = GoogleGeminiModel(password=google_secret)
     rag_processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
                                                        recreate_table=False,
                                                        book_file_path=epub_file_path,
-                                                       llm_model_name="google-gemini",
-                                                       llm_password=google_secret)
+                                                       llm_model=model)
 
     # Draw images of the pipelines
     rag_processor.draw_pipelines()
-    print("LLM Embedder Dims: " + str(rag_processor.llm_embed_dims))
-    print("LLM Context Length: " + str(rag_processor.llm_context_length))
+    print("LLM Embedder Dims: " + str(model.embedding_dimensions))
+    print("LLM Context Length: " + str(model.context_length))
     print("Sentence Embedder Dims: " + str(rag_processor.sentence_embed_dims))
     print("Sentence Embedder Context Length: " + str(rag_processor.sentence_context_length))
 
