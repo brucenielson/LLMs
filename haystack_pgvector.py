@@ -15,9 +15,6 @@ from haystack.components.writers import DocumentWriter
 from haystack.components.builders import PromptBuilder
 from haystack.components.generators import HuggingFaceLocalGenerator
 from haystack_integrations.components.generators.google_ai import GoogleAIGeminiGenerator
-# https://haystack.deepset.ai/release-notes/2.3.0
-# Deprecated HuggingFaceTGIGenerator and HuggingFaceTGIChatGenerator have been removed. Use HuggingFaceAPIGenerator
-# and HuggingFaceAPIChatGenerator instead.
 from haystack.components.generators import HuggingFaceAPIGenerator
 from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
 from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
