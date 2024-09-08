@@ -77,8 +77,61 @@ class LanguageModel:
         Initialize the LanguageModel instance.
 
         """
-        self._model: Optional[Union[HuggingFaceLocalGenerator, GoogleAIGeminiGenerator]] = None
         self._verbose: bool = verbose
+        if self._verbose:
+            print("Warming up Large Language Model")
+
+        self._model_name: Optional[str] = None
+        self._model: Optional[Union[HuggingFaceLocalGenerator, GoogleAIGeminiGenerator, HuggingFaceAPIModel]] = None
+        self._verbose: bool = verbose
+
+    @property
+    def generator_component(self) -> Union[HuggingFaceLocalGenerator, GoogleAIGeminiGenerator]:
+        """
+        Get the generator component of the language model.
+
+        Returns:
+            Union[HuggingFaceLocalGenerator, GoogleAIGeminiGenerator]: The generator component of the language model
+        """
+        return self._model
+
+    @property
+    def context_length(self) -> Optional[int]:
+        """
+        Get the generator component of the language model.
+
+        Returns:
+            Union[HuggingFaceLocalGenerator, GoogleAIGeminiGenerator]: The generator component of the language model
+        """
+        try:
+            config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            return None
+        context_length: Optional[int] = getattr(config, 'max_position_embeddings', None)
+        if context_length is None:
+            context_length = getattr(config, 'n_positions', None)
+        if context_length is None:
+            context_length = getattr(config, 'max_sequence_length', None)
+        return context_length
+
+    @property
+    def embedding_dimensions(self) -> Optional[int]:
+        """
+        Get the embedding dimensions of the language model.
+
+        Returns:
+            Optional[int]: The embedding dimensions of the language model, if available. Otherwise, returns None.
+        """
+        # TODO: Need to test if this really gives us the embedder dims.
+        #  Works correctly for SentenceTransformersTextEmbedder
+        try:
+            config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            return None
+        embedding_dims: Optional[int] = getattr(config, 'hidden_size', None)
+        return embedding_dims
 
     def embed(self, text: str) -> torch.Tensor:
         """
@@ -105,36 +158,6 @@ class LanguageModel:
         """
         raise NotImplementedError("embed method must be implemented in a subclass.")
 
-    @property
-    def context_length(self) -> Optional[int]:
-        """
-        Get the context length of the language model.
-
-        Returns:
-            Optional[int]: The maximum context length of the language model, if available. Otherwise, returns None.
-        """
-        return None
-
-    @property
-    def embedding_dimensions(self) -> Optional[int]:
-        """
-        Get the embedding dimensions of the language model.
-
-        Returns:
-            Optional[int]: The embedding dimensions of the language model, if available. Otherwise, returns None.
-        """
-        return None
-
-    @property
-    def generator_component(self) -> Union[HuggingFaceLocalGenerator, GoogleAIGeminiGenerator]:
-        """
-        Get the generator component of the language model.
-
-        Returns:
-            Union[HuggingFaceLocalGenerator, GoogleAIGeminiGenerator]: The generator component of the language model
-        """
-        return self._model
-
 
 class HuggingFaceModel(LanguageModel):
     """
@@ -147,7 +170,8 @@ class HuggingFaceModel(LanguageModel):
                  task: str = "text-generation",
                  max_new_tokens: int = 500,
                  password: Optional[str] = None,
-                 temperature: float = 0.6) -> None:
+                 temperature: float = 0.6,
+                 verbose: bool = True) -> None:
         """
         Initialize the LanguageModel instance.
 
@@ -155,7 +179,7 @@ class HuggingFaceModel(LanguageModel):
             model_name (str): Name of the language model to use.
             task (str): The task to perform using the language model.
         """
-        super().__init__()
+        super().__init__(verbose)
 
         self._max_new_tokens: int = max_new_tokens
         self._temperature: float = temperature
@@ -168,8 +192,6 @@ class HuggingFaceModel(LanguageModel):
         self._has_cuda: bool = torch.cuda.is_available()
         self._torch_device: torch.device = torch.device("cuda" if self._has_cuda else "cpu")
         self._component_device: Device = Device.gpu() if self._has_cuda else Device.cpu()
-        if self._verbose:
-            print("Warming up Large Language Model")
 
         self._model: HuggingFaceLocalGenerator = HuggingFaceLocalGenerator(
             model=self._model_name,
@@ -181,24 +203,6 @@ class HuggingFaceModel(LanguageModel):
                 "do_sample": True,
             })
         self._model.warm_up()
-
-    @property
-    def context_length(self) -> Optional[int]:
-        config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
-        context_length: Optional[int] = getattr(config, 'max_position_embeddings', None)
-        if context_length is None:
-            context_length = getattr(config, 'n_positions', None)
-        if context_length is None:
-            context_length = getattr(config, 'max_sequence_length', None)
-        return context_length
-
-    @property
-    def embedding_dimensions(self) -> Optional[int]:
-        # TODO: Need to test if this really gives us the embedder dims.
-        #  Works correctly for SentenceTransformersTextEmbedder
-        config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
-        embedding_dims: Optional[int] = getattr(config, 'hidden_size', None)
-        return embedding_dims
 
 
 class HuggingFaceAPIModel(LanguageModel):
@@ -212,7 +216,8 @@ class HuggingFaceAPIModel(LanguageModel):
                  task: str = "text-generation",
                  max_new_tokens: int = 500,
                  password: Optional[str] = None,
-                 temperature: float = 0.6) -> None:
+                 temperature: float = 0.6,
+                 verbose: bool = True) -> None:
         """
         Initialize the LanguageModel instance.
 
@@ -220,7 +225,7 @@ class HuggingFaceAPIModel(LanguageModel):
             model_name (str): Name of the language model to use.
             task (str): The task to perform using the language model.
         """
-        super().__init__()
+        super().__init__(verbose)
 
         self._max_new_tokens: int = max_new_tokens
         self._temperature: float = temperature
@@ -233,14 +238,6 @@ class HuggingFaceAPIModel(LanguageModel):
         self._has_cuda: bool = torch.cuda.is_available()
         self._torch_device: torch.device = torch.device("cuda" if self._has_cuda else "cpu")
         self._component_device: Device = Device.gpu() if self._has_cuda else Device.cpu()
-        if self._verbose:
-            print("Warming up Large Language Model")
-
-        #     generator = HuggingFaceAPIGenerator(api_type="serverless_inference_api",
-        #                                         api_params={"model": "HuggingFaceH4/zephyr-7b-beta"},
-        #                                         token=Secret.from_token("<your-api-key>"))
-        #
-        #     result = generator.run(prompt="What's Natural Language Processing?")
 
         self._model: HuggingFaceAPIGenerator = HuggingFaceAPIGenerator(
             api_type="serverless_inference_api",
@@ -253,32 +250,6 @@ class HuggingFaceAPIModel(LanguageModel):
                 "temperature": self._temperature,
                 "do_sample": True,
             })
-
-    @property
-    def context_length(self) -> Optional[int]:
-        try:
-            config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
-        except Exception as e:
-            print(f"An error occurred: {e}")
-            return None
-        context_length: Optional[int] = getattr(config, 'max_position_embeddings', None)
-        if context_length is None:
-            context_length = getattr(config, 'n_positions', None)
-        if context_length is None:
-            context_length = getattr(config, 'max_sequence_length', None)
-        return context_length
-
-    @property
-    def embedding_dimensions(self) -> Optional[int]:
-        # TODO: Need to test if this really gives us the embedder dims.
-        #  Works correctly for SentenceTransformersTextEmbedder
-        try:
-            config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
-        except Exception as e:
-            print(f"An error occurred: {e}")
-            return None
-        embedding_dims: Optional[int] = getattr(config, 'hidden_size', None)
-        return embedding_dims
 
 
 class GoogleGeminiModel(LanguageModel):
