@@ -633,9 +633,10 @@ def main() -> None:
     epub_file_path: str = "Federalist Papers.epub"
     # model: LanguageModel = HuggingFaceModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
     # model: LanguageModel = GoogleGeminiModel(password=google_secret)
+    model: LanguageModel = HuggingFaceAPIModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
+    # For HuggingFaceAPIModel:
     # meta-llama/Llama-2-7b - times out
     # meta-llama/Meta-Llama-3.1-8B-Instruct = Model requires a Pro subscription
-    model: LanguageModel = HuggingFaceAPIModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
     rag_processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
                                                        recreate_table=False,
                                                        book_file_path=epub_file_path,
