@@ -201,6 +201,78 @@ class HuggingFaceModel(LanguageModel):
         return embedding_dims
 
 
+class HuggingFaceAPIModel(LanguageModel):
+    """
+    A class that represents a Hugging Face Large Language Model (LLM) generator.
+
+    """
+
+    def __init__(self,
+                 model_name: str = 'google/gemma-1.1-2b-it',
+                 task: str = "text-generation",
+                 max_new_tokens: int = 500,
+                 password: Optional[str] = None,
+                 temperature: float = 0.6) -> None:
+        """
+        Initialize the LanguageModel instance.
+
+        Args:
+            model_name (str): Name of the language model to use.
+            task (str): The task to perform using the language model.
+        """
+        super().__init__()
+
+        self._max_new_tokens: int = max_new_tokens
+        self._temperature: float = temperature
+        self._model_name: str = model_name
+        self._task: str = task
+
+        if password is not None:
+            hf_hub.login(password, add_to_git_credential=False)
+
+        self._has_cuda: bool = torch.cuda.is_available()
+        self._torch_device: torch.device = torch.device("cuda" if self._has_cuda else "cpu")
+        self._component_device: Device = Device.gpu() if self._has_cuda else Device.cpu()
+        if self._verbose:
+            print("Warming up Large Language Model")
+
+        #     generator = HuggingFaceAPIGenerator(api_type="serverless_inference_api",
+        #                                         api_params={"model": "HuggingFaceH4/zephyr-7b-beta"},
+        #                                         token=Secret.from_token("<your-api-key>"))
+        #
+        #     result = generator.run(prompt="What's Natural Language Processing?")
+
+        self._model: HuggingFaceAPIGenerator = HuggingFaceAPIGenerator(
+            api_type="serverless_inference_api",
+            api_params={
+                "model": self._model_name,
+            },
+            token=Secret.from_token(password),
+            generation_kwargs={
+                "max_new_tokens": self._max_new_tokens,
+                "temperature": self._temperature,
+                "do_sample": True,
+            })
+
+    @property
+    def context_length(self) -> Optional[int]:
+        config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
+        context_length: Optional[int] = getattr(config, 'max_position_embeddings', None)
+        if context_length is None:
+            context_length = getattr(config, 'n_positions', None)
+        if context_length is None:
+            context_length = getattr(config, 'max_sequence_length', None)
+        return context_length
+
+    @property
+    def embedding_dimensions(self) -> Optional[int]:
+        # TODO: Need to test if this really gives us the embedder dims.
+        #  Works correctly for SentenceTransformersTextEmbedder
+        config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
+        embedding_dims: Optional[int] = getattr(config, 'hidden_size', None)
+        return embedding_dims
+
+
 class GoogleGeminiModel(LanguageModel):
     """
     A class that represents a Google AI Large Language Model (LLM) generator.
@@ -258,7 +330,7 @@ class HaystackPgvector:
                  postgres_port: int = 5432,
                  postgres_db_name: str = 'postgres',
                  min_section_size: int = 1000,
-                 llm_model: LanguageModel = None,
+                 llm_model: Union[LanguageModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator] = None,
                  embedder_model_name: Optional[str] = None,
                  ) -> None:
         """
@@ -273,7 +345,8 @@ class HaystackPgvector:
             postgres_host (str): Host address for Postgres database.
             postgres_port (int): Port number for Postgres database.
             postgres_db_name (str): Name of the Postgres database.
-            llm_model (LanguageModel): Language model to use for text generation.
+            llm_model (Union[LanguageModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator]):
+                Language model to use for text generation.
             embedder_model_name (Optional[str]): Name of the embedding model to use.
             min_section_size (int): Minimum size of a section to be considered for indexing.
         """
@@ -310,7 +383,7 @@ class HaystackPgvector:
         # Warm up _model
         if llm_model is None:
             llm_model = HuggingFaceModel(password=hf_secret)
-        self._llm_model: LanguageModel = llm_model
+        self._llm_model: Union[LanguageModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator] = llm_model
 
         # Default prompt template
         # noinspection SpellCheckingInspection
@@ -530,7 +603,10 @@ class HaystackPgvector:
         rag_pipeline.add_component("retriever", PgvectorEmbeddingRetriever(document_store=self._document_store,
                                                                            top_k=5))
         rag_pipeline.add_component("prompt_builder", prompt_builder)
-        rag_pipeline.add_component("llm", self._llm_model.generator_component)
+        if isinstance(self._llm_model, LanguageModel):
+            rag_pipeline.add_component("llm", self._llm_model.generator_component)
+        else:
+            rag_pipeline.add_component("llm", self._llm_model)
         # Add a new component to merge results
         rag_pipeline.add_component("merger", self._MergeResults())
 
@@ -547,8 +623,9 @@ class HaystackPgvector:
 
 def main() -> None:
     epub_file_path: str = "Federalist Papers.epub"
-    model: LanguageModel = HuggingFaceModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
+    # model: LanguageModel = HuggingFaceModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
     # model: LanguageModel = GoogleGeminiModel(password=google_secret)
+    model: LanguageModel = HuggingFaceAPIModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
     rag_processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
                                                        recreate_table=False,
                                                        book_file_path=epub_file_path,
