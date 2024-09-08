@@ -478,7 +478,11 @@ class HaystackPgvector:
 
     @staticmethod
     def _get_context_length(model_name: str) -> Optional[int]:
-        config: AutoConfig = AutoConfig.from_pretrained(model_name)
+        try:
+            config: AutoConfig = AutoConfig.from_pretrained(model_name)
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            return None
         context_length: Optional[int] = getattr(config, 'max_position_embeddings', None)
         if context_length is None:
             context_length = getattr(config, 'n_positions', None)
@@ -490,7 +494,11 @@ class HaystackPgvector:
     def _get_embedding_dimensions(model_name: str) -> Optional[int]:
         # TODO: Need to test if this really gives us the embedder dims.
         #  Works correctly for SentenceTransformersTextEmbedder
-        config: AutoConfig = AutoConfig.from_pretrained(model_name)
+        try:
+            config: AutoConfig = AutoConfig.from_pretrained(model_name)
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            return None
         embedding_dims: Optional[int] = getattr(config, 'hidden_size', None)
         return embedding_dims
 
