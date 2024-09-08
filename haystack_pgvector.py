@@ -256,7 +256,11 @@ class HuggingFaceAPIModel(LanguageModel):
 
     @property
     def context_length(self) -> Optional[int]:
-        config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
+        try:
+            config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            return None
         context_length: Optional[int] = getattr(config, 'max_position_embeddings', None)
         if context_length is None:
             context_length = getattr(config, 'n_positions', None)
@@ -268,7 +272,11 @@ class HuggingFaceAPIModel(LanguageModel):
     def embedding_dimensions(self) -> Optional[int]:
         # TODO: Need to test if this really gives us the embedder dims.
         #  Works correctly for SentenceTransformersTextEmbedder
-        config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
+        try:
+            config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            return None
         embedding_dims: Optional[int] = getattr(config, 'hidden_size', None)
         return embedding_dims
 
@@ -625,6 +633,8 @@ def main() -> None:
     epub_file_path: str = "Federalist Papers.epub"
     # model: LanguageModel = HuggingFaceModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
     # model: LanguageModel = GoogleGeminiModel(password=google_secret)
+    # meta-llama/Llama-2-7b - times out
+    # meta-llama/Meta-Llama-3.1-8B-Instruct = Model requires a Pro subscription
     model: LanguageModel = HuggingFaceAPIModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
     rag_processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
                                                        recreate_table=False,
