@@ -633,10 +633,15 @@ def main() -> None:
     epub_file_path: str = "Federalist Papers.epub"
     # model: LanguageModel = HuggingFaceModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
     # model: LanguageModel = GoogleGeminiModel(password=google_secret)
-    model: LanguageModel = HuggingFaceAPIModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
+    model: LanguageModel = HuggingFaceAPIModel(password=hf_secret, model_name="HuggingFaceH4/zephyr-7b-alpha")
     # For HuggingFaceAPIModel:
+    # google/gemma-7b-it - The model google/gemma-7b-it is too large to be loaded automatically (17GB > 10GB).
     # meta-llama/Llama-2-7b - times out
     # meta-llama/Meta-Llama-3.1-8B-Instruct = Model requires a Pro subscription
+    # google/gemma-1.1-2b-it - Works
+    # HuggingFaceH4/zephyr-7b-alpha - Works - Hugging Face specifically made this larger model work with their
+    # serverless API
+
     rag_processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
                                                        recreate_table=False,
                                                        book_file_path=epub_file_path,
