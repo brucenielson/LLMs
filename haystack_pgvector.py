@@ -210,7 +210,6 @@ class HuggingFaceAPIModel(LanguageModel):
 
     def __init__(self,
                  model_name: str = 'google/gemma-1.1-2b-it',
-                 task: str = "text-generation",
                  max_new_tokens: int = 500,
                  password: Optional[str] = None,
                  temperature: float = 0.6,
@@ -227,14 +226,6 @@ class HuggingFaceAPIModel(LanguageModel):
         self._max_new_tokens: int = max_new_tokens
         self._temperature: float = temperature
         self._model_name: str = model_name
-        self._task: str = task
-
-        if password is not None:
-            hf_hub.login(password, add_to_git_credential=False)
-
-        self._has_cuda: bool = torch.cuda.is_available()
-        self._torch_device: torch.device = torch.device("cuda" if self._has_cuda else "cpu")
-        self._component_device: Device = Device.gpu() if self._has_cuda else Device.cpu()
 
         self._model: HuggingFaceAPIGenerator = HuggingFaceAPIGenerator(
             api_type="serverless_inference_api",
