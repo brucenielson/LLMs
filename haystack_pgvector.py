@@ -54,7 +54,7 @@ hf_secret: str = get_secret(r'D:\Documents\Secrets\huggingface_secret.txt')  # P
 google_secret: str = get_secret(r'D:\Documents\Secrets\gemini_secret.txt')  # Put your path here
 
 
-class LanguageModel(ABC):
+class GeneratorModel(ABC):
     """
     A class that represents a Large Language Model (LLM) generator.
 
@@ -72,7 +72,7 @@ class LanguageModel(ABC):
     """
     def __init__(self, verbose: bool = False) -> None:
         """
-        Initialize the LanguageModel instance.
+        Initialize the GeneratorModel instance.
 
         """
         self._verbose: bool = verbose
@@ -153,7 +153,7 @@ class LanguageModel(ABC):
         self._verbose = value
 
 
-class HuggingFaceModel(LanguageModel, ABC):
+class HuggingFaceModel(GeneratorModel, ABC):
     def __init__(self,
                  model_name: str = 'google/gemma-1.1-2b-it',
                  max_new_tokens: int = 500,
@@ -221,7 +221,7 @@ class HuggingFaceLocalModel(HuggingFaceModel):
                  task: str = "text-generation",
                  verbose: bool = True) -> None:
         """
-        Initialize the LanguageModel instance.
+        Initialize the GeneratorModel instance.
 
         Args:
             model_name (str): Name of the language model to use.
@@ -264,7 +264,7 @@ class HuggingFaceAPIModel(HuggingFaceModel):
                  temperature: float = 0.6,
                  verbose: bool = True) -> None:
         """
-        Initialize the LanguageModel instance.
+        Initialize the GeneratorModel instance.
 
         Args:
             model_name (str): Name of the language model to use.
@@ -295,7 +295,7 @@ class HuggingFaceAPIModel(HuggingFaceModel):
         return None
 
 
-class GoogleGeminiModel(LanguageModel):
+class GoogleGeminiModel(GeneratorModel):
     """
     A class that represents a Google AI Large Language Model (LLM) generator.
 
@@ -303,7 +303,7 @@ class GoogleGeminiModel(LanguageModel):
 
     def __init__(self, password: Optional[str] = None) -> None:
         """
-        Initialize the LanguageModel instance.
+        Initialize the GeneratorModel instance.
 
         """
         super().__init__()
@@ -347,8 +347,6 @@ class HaystackPgvector:
         generate_response(query: str): Generate a response to a given query.
 
     Properties:
-        llm_context_length: Get the context length of the language model.
-        llm_embed_dims: Get the embedding dimensions of the language model.
         sentence_context_length: Get the context length of the sentence embedder.
         sentence_embed_dims: Get the embedding dimensions of the sentence embedder.
 
@@ -367,7 +365,7 @@ class HaystackPgvector:
                  postgres_port: int = 5432,
                  postgres_db_name: str = 'postgres',
                  min_section_size: int = 1000,
-                 llm_model: Union[LanguageModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator] = None,
+                 generator_model: Union[GeneratorModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator] = None,
                  embedder_model_name: Optional[str] = None,
                  ) -> None:
         """
@@ -383,7 +381,7 @@ class HaystackPgvector:
             postgres_host (str): Host address for Postgres database.
             postgres_port (int): Port number for Postgres database.
             postgres_db_name (str): Name of the Postgres database.
-            llm_model (Union[LanguageModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator]):
+            generator_model (Union[GeneratorModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator]):
                 Language model to use for text generation.
             embedder_model_name (Optional[str]): Name of the embedding model to use.
             min_section_size (int): Minimum size of a section to be considered for indexing.
@@ -419,9 +417,9 @@ class HaystackPgvector:
         self._initialize_document_store()
 
         # Warm up _model
-        if llm_model is None:
-            llm_model = HuggingFaceLocalModel(password=hf_secret)
-        self._llm_model: Union[LanguageModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator] = llm_model
+        if generator_model is None:
+            generator_model = HuggingFaceLocalModel(password=hf_secret)
+        self._generator_model: Union[GeneratorModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator] = generator_model
 
         # Default prompt template
         # noinspection SpellCheckingInspection
@@ -570,10 +568,10 @@ class HaystackPgvector:
         doc_convert_pipe: Pipeline = Pipeline()
         doc_convert_pipe.add_component("converter", HTMLToDocument())
         doc_convert_pipe.add_component("remove_illegal_docs", instance=self._RemoveIllegalDocs())
-        doc_convert_pipe.add_component("cleaner", DocumentCleaner())
         doc_convert_pipe.add_component("splitter", DocumentSplitter(split_by="sentence", split_length=10,
                                                                     split_overlap=1,
                                                                     split_threshold=2))
+        doc_convert_pipe.add_component("cleaner", DocumentCleaner())
         # TODO: Use Cuda if possible
         doc_convert_pipe.add_component("embedder", SentenceTransformersDocumentEmbedder())
         doc_convert_pipe.add_component("writer",
@@ -623,10 +621,10 @@ class HaystackPgvector:
         rag_pipeline.add_component("retriever", PgvectorEmbeddingRetriever(document_store=self._document_store,
                                                                            top_k=5))
         rag_pipeline.add_component("prompt_builder", prompt_builder)
-        if isinstance(self._llm_model, LanguageModel):
-            rag_pipeline.add_component("llm", self._llm_model.generator_component)
+        if isinstance(self._generator_model, GeneratorModel):
+            rag_pipeline.add_component("llm", self._generator_model.generator_component)
         else:
-            rag_pipeline.add_component("llm", self._llm_model)
+            rag_pipeline.add_component("llm", self._generator_model)
         # Add a new component to merge results
         rag_pipeline.add_component("merger", self._MergeResults())
 
@@ -643,18 +641,18 @@ class HaystackPgvector:
 
 def main() -> None:
     epub_file_path: str = "Federalist Papers.epub"
-    # model: LanguageModel = HuggingFaceLocalModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
-    # model: LanguageModel = GoogleGeminiModel(password=google_secret)
-    model: LanguageModel = HuggingFaceAPIModel(password=hf_secret, model_name="HuggingFaceH4/zephyr-7b-alpha")
+    model: GeneratorModel = HuggingFaceLocalModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
+    # model: GeneratorModel = GoogleGeminiModel(password=google_secret)
+    # model: GeneratorModel = HuggingFaceAPIModel(password=hf_secret, model_name="HuggingFaceH4/zephyr-7b-alpha")
     rag_processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
                                                        recreate_table=False,
                                                        book_file_path=epub_file_path,
-                                                       llm_model=model)
+                                                       generator_model=model)
 
     # Draw images of the pipelines
     rag_processor.draw_pipelines()
-    print("LLM Embedder Dims: " + str(model.embedding_dimensions))
-    print("LLM Context Length: " + str(model.context_length))
+    print("Generator Embedder Dims: " + str(model.embedding_dimensions))
+    print("Generator Context Length: " + str(model.context_length))
     print("Sentence Embedder Dims: " + str(rag_processor.sentence_embed_dims))
     print("Sentence Embedder Context Length: " + str(rag_processor.sentence_context_length))
 
