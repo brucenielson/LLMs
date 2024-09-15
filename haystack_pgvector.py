@@ -219,7 +219,6 @@ class HuggingFaceAPIModel(LanguageModel):
 
         Args:
             model_name (str): Name of the language model to use.
-            task (str): The task to perform using the language model.
         """
         super().__init__(verbose)
 
