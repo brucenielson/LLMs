@@ -376,7 +376,8 @@ class HaystackPgvector:
         Args:
             table_name (str): Name of the table in the Pgvector database.
             recreate_table (bool): Whether to recreate the database table.
-            book_file_path (Optional[str]): Path to the EPUB file to be processed.
+            book_file_path (Optional[s
+            tr]): Path to the EPUB file to be processed.
             postgres_user_name (str): Username for Postgres database.
             postgres_password (str): Password for Postgres database.
             postgres_host (str): Host address for Postgres database.
@@ -411,8 +412,6 @@ class HaystackPgvector:
         else:
             self._sentence_embedder = SentenceTransformersTextEmbedder()
         self._sentence_embedder.warm_up()
-        length: int = self._sentence_embedder.embedding_backend.model.get_max_seq_length()
-        print(f"Max Sequence Length for SentenceTransformer (from get_max_seq_length()): {length}")
 
         print("Initializing document store")
         self._document_store: Optional[PgvectorDocumentStore] = None
@@ -455,7 +454,7 @@ class HaystackPgvector:
         Returns:
             Optional[int]: The maximum context length of the sentence embedder model, if available.
         """
-        return HaystackPgvector._get_context_length(self._sentence_embedder.model)
+        return self._sentence_embedder.embedding_backend.model.get_max_seq_length()
 
     @property
     def sentence_embed_dims(self) -> Optional[int]:
@@ -535,32 +534,6 @@ class HaystackPgvector:
                     "replies": replies
                 }
             }
-
-    @staticmethod
-    def _get_context_length(model_name: str) -> Optional[int]:
-        try:
-            config: AutoConfig = AutoConfig.from_pretrained(model_name)
-        except Exception as e:
-            print(f"An error occurred: {e}")
-            return None
-        context_length: Optional[int] = getattr(config, 'max_position_embeddings', None)
-        if context_length is None:
-            context_length = getattr(config, 'n_positions', None)
-        if context_length is None:
-            context_length = getattr(config, 'max_sequence_length', None)
-        return context_length
-
-    @staticmethod
-    def _get_embedding_dimensions(model_name: str) -> Optional[int]:
-        # TODO: Need to test if this really gives us the embedder dims.
-        #  Works correctly for SentenceTransformersTextEmbedder
-        try:
-            config: AutoConfig = AutoConfig.from_pretrained(model_name)
-        except Exception as e:
-            print(f"An error occurred: {e}")
-            return None
-        embedding_dims: Optional[int] = getattr(config, 'hidden_size', None)
-        return embedding_dims
 
     def _load_epub(self) -> Tuple[List[ByteStream], List[Dict[str, str]]]:
         docs: List[ByteStream] = []
@@ -670,9 +643,9 @@ class HaystackPgvector:
 
 def main() -> None:
     epub_file_path: str = "Federalist Papers.epub"
-    model: LanguageModel = HuggingFaceLocalModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
+    # model: LanguageModel = HuggingFaceLocalModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
     # model: LanguageModel = GoogleGeminiModel(password=google_secret)
-    # model: LanguageModel = HuggingFaceAPIModel(password=hf_secret, model_name="HuggingFaceH4/zephyr-7b-alpha")
+    model: LanguageModel = HuggingFaceAPIModel(password=hf_secret, model_name="HuggingFaceH4/zephyr-7b-alpha")
     rag_processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
                                                        recreate_table=False,
                                                        book_file_path=epub_file_path,
