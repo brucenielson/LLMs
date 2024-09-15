@@ -24,6 +24,7 @@ from haystack.utils.auth import Secret
 # Other imports
 from typing import List, Optional, Dict, Any, Tuple, Union
 from pathlib import Path
+from abc import ABC, abstractmethod
 
 
 def get_secret(secret_file: str) -> str:
@@ -53,7 +54,7 @@ hf_secret: str = get_secret(r'D:\Documents\Secrets\huggingface_secret.txt')  # P
 google_secret: str = get_secret(r'D:\Documents\Secrets\gemini_secret.txt')  # Put your path here
 
 
-class LanguageModel:
+class LanguageModel(ABC):
     """
     A class that represents a Large Language Model (LLM) generator.
 
@@ -83,7 +84,7 @@ class LanguageModel:
         self._verbose: bool = verbose
 
     @property
-    def generator_component(self) -> Union[HuggingFaceLocalGenerator, GoogleAIGeminiGenerator]:
+    def generator_component(self) -> Union[HuggingFaceLocalGenerator, HuggingFaceAPIGenerator, GoogleAIGeminiGenerator]:
         """
         Get the generator component of the language model.
 
@@ -93,6 +94,7 @@ class LanguageModel:
         return self._model
 
     @property
+    @abstractmethod
     def context_length(self) -> Optional[int]:
         """
         Get the generator component of the language model.
@@ -100,6 +102,83 @@ class LanguageModel:
         Returns:
             Union[HuggingFaceLocalGenerator, GoogleAIGeminiGenerator]: The generator component of the language model
         """
+        pass
+
+    @property
+    @abstractmethod
+    def embedding_dimensions(self) -> Optional[int]:
+        """
+        Get the embedding dimensions of the language model.
+
+        Returns:
+            Optional[int]: The embedding dimensions of the language model, if available. Otherwise, returns None.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def language_model(self) -> Optional[object]:
+        """
+        Get the language model instance.
+
+        Returns:
+            Returns the language model instance used by this generator. If it is an API model, returns None.
+        """
+        pass
+
+    @abstractmethod
+    def generate(self, prompt: str) -> str:
+        """
+        Generate text using the given prompt.
+
+        Args:
+            prompt (str): The prompt to use for text generation.
+
+        Returns:
+            str: The generated text.
+        """
+        # To be implemented in a subclass
+        pass
+
+    @property
+    def model_name(self) -> Optional[str]:
+        return self._model_name
+
+    @property
+    def verbose(self) -> bool:
+        return self._verbose
+
+    @verbose.setter
+    def verbose(self, value: bool) -> None:
+        self._verbose = value
+
+
+class HuggingFaceModel(LanguageModel, ABC):
+    def __init__(self,
+                 model_name: str = 'google/gemma-1.1-2b-it',
+                 max_new_tokens: int = 500,
+                 temperature: float = 0.6,
+                 password: Optional[str] = None,
+                 verbose: bool = False) -> None:
+        super().__init__(verbose)
+
+        self._max_new_tokens: int = max_new_tokens
+        self._temperature: float = temperature
+        self._model_name: str = model_name
+
+        if password is not None:
+            hf_hub.login(password, add_to_git_credential=False)
+
+    @property
+    def max_new_tokens(self) -> int:
+        return self._max_new_tokens
+
+    @property
+    def temperature(self) -> float:
+        return self._temperature
+
+    @property
+    def context_length(self) -> Optional[int]:
         try:
             config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
         except Exception as e:
@@ -114,12 +193,6 @@ class LanguageModel:
 
     @property
     def embedding_dimensions(self) -> Optional[int]:
-        """
-        Get the embedding dimensions of the language model.
-
-        Returns:
-            Optional[int]: The embedding dimensions of the language model, if available. Otherwise, returns None.
-        """
         # TODO: Need to test if this really gives us the embedder dims.
         #  Works correctly for SentenceTransformersTextEmbedder
         try:
@@ -130,33 +203,11 @@ class LanguageModel:
         embedding_dims: Optional[int] = getattr(config, 'hidden_size', None)
         return embedding_dims
 
-    def embed(self, text: str) -> torch.Tensor:
-        """
-        Generate an embedding for the given text.
-
-        Args:
-            text (str): The text to embed.
-
-        Returns:
-            torch.Tensor: The embedding tensor for the text.
-        """
-        # To be implemented in a subclass
-        raise NotImplementedError("embed method must be implemented in a subclass.")
-
     def generate(self, prompt: str) -> str:
-        """
-        Generate text using the given prompt.
-
-        Args:
-            prompt (str): The prompt to use for text generation.
-
-        Returns:
-            str: The generated text.
-        """
-        raise NotImplementedError("embed method must be implemented in a subclass.")
+        return self._model.run(prompt)
 
 
-class HuggingFaceModel(LanguageModel):
+class HuggingFaceLocalModel(HuggingFaceModel):
     """
     A class that represents a Hugging Face Large Language Model (LLM) generator.
 
@@ -164,10 +215,10 @@ class HuggingFaceModel(LanguageModel):
 
     def __init__(self,
                  model_name: str = 'google/gemma-1.1-2b-it',
-                 task: str = "text-generation",
                  max_new_tokens: int = 500,
-                 password: Optional[str] = None,
                  temperature: float = 0.6,
+                 password: Optional[str] = None,
+                 task: str = "text-generation",
                  verbose: bool = True) -> None:
         """
         Initialize the LanguageModel instance.
@@ -176,16 +227,11 @@ class HuggingFaceModel(LanguageModel):
             model_name (str): Name of the language model to use.
             task (str): The task to perform using the language model.
         """
-        super().__init__(verbose)
+        super().__init__(verbose=verbose, model_name=model_name, max_new_tokens=max_new_tokens,
+                         temperature=temperature, password=password)
 
-        self._max_new_tokens: int = max_new_tokens
-        self._temperature: float = temperature
-        self._model_name: str = model_name
+        # Local model related variables
         self._task: str = task
-
-        if password is not None:
-            hf_hub.login(password, add_to_git_credential=False)
-
         self._has_cuda: bool = torch.cuda.is_available()
         self._torch_device: torch.device = torch.device("cuda" if self._has_cuda else "cpu")
         self._component_device: Device = Device.gpu() if self._has_cuda else Device.cpu()
@@ -201,8 +247,11 @@ class HuggingFaceModel(LanguageModel):
             })
         self._model.warm_up()
 
+    def language_model(self) -> object:
+        return self._model.pipeline.model
 
-class HuggingFaceAPIModel(LanguageModel):
+
+class HuggingFaceAPIModel(HuggingFaceModel):
     """
     A class that represents a Hugging Face Large Language Model (LLM) generator.
 
@@ -220,7 +269,8 @@ class HuggingFaceAPIModel(LanguageModel):
         Args:
             model_name (str): Name of the language model to use.
         """
-        super().__init__(verbose)
+        super().__init__(verbose=verbose, model_name=model_name, max_new_tokens=max_new_tokens,
+                         temperature=temperature, password=password)
 
         self._max_new_tokens: int = max_new_tokens
         self._temperature: float = temperature
@@ -238,6 +288,12 @@ class HuggingFaceAPIModel(LanguageModel):
                 "do_sample": True,
             })
 
+    def generate(self, prompt: str) -> str:
+        return self._model.run(prompt)
+
+    def language_model(self) -> None:
+        return None
+
 
 class GoogleGeminiModel(LanguageModel):
     """
@@ -254,10 +310,25 @@ class GoogleGeminiModel(LanguageModel):
         if self._verbose:
             print("Warming up Large Language Model")
 
-        self._model = GoogleAIGeminiGenerator(
+        self._model: GoogleAIGeminiGenerator = GoogleAIGeminiGenerator(
             model="gemini-pro",
             api_key=Secret.from_token(password)
         )
+
+    def generate(self, prompt: str) -> str:
+        return self._model.run(prompt)
+
+    @property
+    def context_length(self) -> Optional[int]:
+        return None
+
+    @property
+    def embedding_dimensions(self) -> Optional[int]:
+        return None
+
+    @property
+    def language_model(self) -> None:
+        return None
 
 
 class HaystackPgvector:
@@ -350,7 +421,7 @@ class HaystackPgvector:
 
         # Warm up _model
         if llm_model is None:
-            llm_model = HuggingFaceModel(password=hf_secret)
+            llm_model = HuggingFaceLocalModel(password=hf_secret)
         self._llm_model: Union[LanguageModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator] = llm_model
 
         # Default prompt template
@@ -599,9 +670,9 @@ class HaystackPgvector:
 
 def main() -> None:
     epub_file_path: str = "Federalist Papers.epub"
-    # model: LanguageModel = HuggingFaceModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
+    model: LanguageModel = HuggingFaceLocalModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
     # model: LanguageModel = GoogleGeminiModel(password=google_secret)
-    model: LanguageModel = HuggingFaceAPIModel(password=hf_secret, model_name="HuggingFaceH4/zephyr-7b-alpha")
+    # model: LanguageModel = HuggingFaceAPIModel(password=hf_secret, model_name="HuggingFaceH4/zephyr-7b-alpha")
     rag_processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
                                                        recreate_table=False,
                                                        book_file_path=epub_file_path,
