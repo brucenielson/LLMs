@@ -340,6 +340,8 @@ class HaystackPgvector:
         else:
             self._sentence_embedder = SentenceTransformersTextEmbedder()
         self._sentence_embedder.warm_up()
+        length: int = self._sentence_embedder.embedding_backend.model.get_max_seq_length()
+        print(f"Max Sequence Length for SentenceTransformer (from get_max_seq_length()): {length}")
 
         print("Initializing document store")
         self._document_store: Optional[PgvectorDocumentStore] = None
