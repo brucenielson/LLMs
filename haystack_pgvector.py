@@ -1,7 +1,7 @@
 # Hugging Face and Pytorch imports
 import torch
 import huggingface_hub as hf_hub
-from transformers import AutoConfig, AutoTokenizer # , PreTrainedTokenizerFast
+from transformers import AutoConfig  # , AutoTokenizer, PreTrainedTokenizerFast
 from sentence_transformers import SentenceTransformer
 # EPUB imports
 from bs4 import BeautifulSoup
@@ -235,12 +235,12 @@ class HuggingFaceLocalModel(HuggingFaceModel):
         self._task: str = task
         self._has_cuda: bool = torch.cuda.is_available()
         self._torch_device: torch.device = torch.device("cuda" if self._has_cuda else "cpu")
-        self._component_device: Device = Device.gpu() if self._has_cuda else Device.cpu()
+        self._component_device: ComponentDevice = ComponentDevice(Device.gpu() if self._has_cuda else Device.cpu())
 
         self._model: HuggingFaceLocalGenerator = HuggingFaceLocalGenerator(
             model=self._model_name,
             task="text-generation",
-            device=ComponentDevice(self._component_device),
+            device=self._component_device,
             generation_kwargs={
                 "max_new_tokens": self._max_new_tokens,
                 "temperature": self._temperature,
@@ -375,8 +375,7 @@ class HaystackPgvector:
         Args:
             table_name (str): Name of the table in the Pgvector database.
             recreate_table (bool): Whether to recreate the database table.
-            book_file_path (Optional[s
-            tr]): Path to the EPUB file to be processed.
+            book_file_path (Optional[str]): Path to the EPUB file to be processed.
             postgres_user_name (str): Username for Postgres database.
             postgres_password (str): Password for Postgres database.
             postgres_host (str): Host address for Postgres database.
@@ -394,6 +393,11 @@ class HaystackPgvector:
         self._recreate_table: bool = recreate_table
         self._min_section_size = min_section_size
 
+        # GPU or CPU
+        self._has_cuda: bool = torch.cuda.is_available()
+        self._torch_device: torch.device = torch.device("cuda" if self._has_cuda else "cpu")
+        self._component_device: ComponentDevice = ComponentDevice(Device.gpu() if self._has_cuda else Device.cpu())
+
         # Passwords and connection strings
         if (postgres_password is None) or (postgres_password == ""):
             postgres_password = get_secret(r'D:\Documents\Secrets\postgres_password.txt')
@@ -403,13 +407,12 @@ class HaystackPgvector:
 
         print("Warming up Text Embedder")
         self._embedder_model_name: Optional[str] = embedder_model_name
-        # TODO: Use Cuda if possible
         self._sentence_embedder: SentenceTransformersTextEmbedder
         if self._embedder_model_name is not None:
             self._sentence_embedder = SentenceTransformersTextEmbedder(
-                model_name_or_path=self._embedder_model_name)
+                model_name_or_path=self._embedder_model_name, device=self._component_device)
         else:
-            self._sentence_embedder = SentenceTransformersTextEmbedder()
+            self._sentence_embedder = SentenceTransformersTextEmbedder(device=self._component_device)
         self._sentence_embedder.warm_up()
 
         print("Initializing document store")
@@ -420,7 +423,8 @@ class HaystackPgvector:
         # Warm up _model
         if generator_model is None:
             generator_model = HuggingFaceLocalModel(password=hf_secret)
-        self._generator_model: Union[GeneratorModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator] = generator_model
+        self._generator_model: Union[GeneratorModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator] = (
+            generator_model)
 
         # Default prompt template
         # noinspection SpellCheckingInspection
@@ -625,7 +629,8 @@ class HaystackPgvector:
         return docs, meta
 
     def _doc_converter_pipeline(self) -> None:
-        embedder: SentenceTransformersDocumentEmbedder = SentenceTransformersDocumentEmbedder()
+        embedder: SentenceTransformersDocumentEmbedder = (
+            SentenceTransformersDocumentEmbedder(device=self._component_device))
         embedder.warm_up()
         custom_splitter = self._CustomDocumentSplitter(embedder)
 
@@ -634,7 +639,6 @@ class HaystackPgvector:
         doc_convert_pipe.add_component("remove_illegal_docs", instance=self._RemoveIllegalDocs())
         doc_convert_pipe.add_component("cleaner", DocumentCleaner())
         doc_convert_pipe.add_component("splitter", custom_splitter)
-        # TODO: Use Cuda if possible
         doc_convert_pipe.add_component("embedder", embedder)
         doc_convert_pipe.add_component("writer",
                                        DocumentWriter(document_store=self._document_store,
