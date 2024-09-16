@@ -246,6 +246,8 @@ class HuggingFaceLocalModel(HuggingFaceModel):
                 "temperature": self._temperature,
                 "do_sample": True,
             })
+
+    def warm_up(self) -> None:
         self._model.warm_up()
 
     def language_model(self) -> object:
@@ -409,8 +411,9 @@ class HaystackPgvector:
         self._embedder_model_name: Optional[str] = embedder_model_name
         self._sentence_embedder: SentenceTransformersTextEmbedder
         if self._embedder_model_name is not None:
-            self._sentence_embedder = SentenceTransformersTextEmbedder(
-                model_name_or_path=self._embedder_model_name, device=self._component_device)
+            self._sentence_embedder = SentenceTransformersTextEmbedder(model=self._embedder_model_name,
+                                                                       # device=self._component_device,
+                                                                       trust_remote_code=True)
         else:
             self._sentence_embedder = SentenceTransformersTextEmbedder(device=self._component_device)
         self._sentence_embedder.warm_up()
@@ -425,6 +428,9 @@ class HaystackPgvector:
             generator_model = HuggingFaceLocalModel(password=hf_secret)
         self._generator_model: Union[GeneratorModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator] = (
             generator_model)
+        # If the generator model has a warm_up method, call it
+        if hasattr(self._generator_model, 'warm_up'):
+            self._generator_model.warm_up()
 
         # Default prompt template
         # noinspection SpellCheckingInspection
@@ -629,11 +635,18 @@ class HaystackPgvector:
         return docs, meta
 
     def _doc_converter_pipeline(self) -> None:
-        embedder: SentenceTransformersDocumentEmbedder = (
-            SentenceTransformersDocumentEmbedder(device=self._component_device))
+        # Setup sentence embedder
+        embedder: SentenceTransformersDocumentEmbedder
+        if self._embedder_model_name is not None:
+            embedder = SentenceTransformersDocumentEmbedder(model=self._embedder_model_name,
+                                                            # device=self._component_device,
+                                                            trust_remote_code=True)
+        else:
+            embedder = SentenceTransformersDocumentEmbedder(device=self._component_device)
         embedder.warm_up()
+        # Create the custom splitter
         custom_splitter = self._CustomDocumentSplitter(embedder)
-
+        # Create the document conversion pipeline
         doc_convert_pipe: Pipeline = Pipeline()
         doc_convert_pipe.add_component("converter", HTMLToDocument())
         doc_convert_pipe.add_component("remove_illegal_docs", instance=self._RemoveIllegalDocs())
@@ -683,7 +696,7 @@ class HaystackPgvector:
 
         rag_pipeline: Pipeline = Pipeline()
         # Use Cuda is possible
-        rag_pipeline.add_component("query_embedder", SentenceTransformersTextEmbedder())
+        rag_pipeline.add_component("query_embedder", self._sentence_embedder)
         rag_pipeline.add_component("retriever", PgvectorEmbeddingRetriever(document_store=self._document_store,
                                                                            top_k=5))
         rag_pipeline.add_component("prompt_builder", prompt_builder)
@@ -711,9 +724,10 @@ def main() -> None:
     # model: GeneratorModel = GoogleGeminiModel(password=google_secret)
     # model: GeneratorModel = HuggingFaceAPIModel(password=hf_secret, model_name="HuggingFaceH4/zephyr-7b-alpha")
     rag_processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
-                                                       recreate_table=True,
+                                                       recreate_table=False,
                                                        book_file_path=epub_file_path,
-                                                       generator_model=model)
+                                                       generator_model=model,
+                                                       embedder_model_name="Alibaba-NLP/gte-large-en-v1.5")
 
     # Draw images of the pipelines
     rag_processor.draw_pipelines()
