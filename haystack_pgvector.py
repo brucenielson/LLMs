@@ -75,6 +75,8 @@ class GeneratorModel(ABC):
         """
         Initialize the GeneratorModel instance.
 
+        Args:
+            verbose (bool, optional): Whether to print verbose output. Defaults to False.
         """
         self._verbose: bool = verbose
         if self._verbose:
@@ -161,6 +163,16 @@ class HuggingFaceModel(GeneratorModel, ABC):
                  temperature: float = 0.6,
                  password: Optional[str] = None,
                  verbose: bool = False) -> None:
+        """
+        Initialize the HuggingFaceModel instance.
+
+        Args:
+            model_name (str, optional): Name of the Hugging Face model to use. Defaults to 'google/gemma-1.1-2b-it'.
+            max_new_tokens (int, optional): Maximum number of new tokens to generate. Defaults to 500.
+            temperature (float, optional): Temperature for text generation. Defaults to 0.6.
+            password (Optional[str], optional): Password for Hugging Face authentication. Defaults to None.
+            verbose (bool, optional): Whether to print verbose output. Defaults to False.
+        """
         super().__init__(verbose)
 
         self._max_new_tokens: int = max_new_tokens
@@ -222,11 +234,15 @@ class HuggingFaceLocalModel(HuggingFaceModel):
                  task: str = "text-generation",
                  verbose: bool = True) -> None:
         """
-        Initialize the GeneratorModel instance.
+        Initialize the HuggingFaceLocalModel instance.
 
         Args:
-            model_name (str): Name of the language model to use.
-            task (str): The task to perform using the language model.
+            model_name (str, optional): Name of the language model to use. Defaults to 'google/gemma-1.1-2b-it'.
+            max_new_tokens (int, optional): Maximum number of new tokens to generate. Defaults to 500.
+            temperature (float, optional): Temperature for text generation. Defaults to 0.6.
+            password (Optional[str], optional): Password for Hugging Face authentication. Defaults to None.
+            task (str, optional): The task to perform using the language model. Defaults to "text-generation".
+            verbose (bool, optional): Whether to print verbose output. Defaults to True.
         """
         super().__init__(verbose=verbose, model_name=model_name, max_new_tokens=max_new_tokens,
                          temperature=temperature, password=password)
@@ -306,8 +322,10 @@ class GoogleGeminiModel(GeneratorModel):
 
     def __init__(self, password: Optional[str] = None) -> None:
         """
-        Initialize the GeneratorModel instance.
+        Initialize the GoogleGeminiModel instance.
 
+        Args:
+            password (Optional[str], optional): Password for Google AI authentication. Defaults to None.
         """
         super().__init__()
         if self._verbose:
@@ -357,7 +375,6 @@ class HaystackPgvector:
     and language models internally. It also manages the creation and execution
     of the document processing and RAG pipelines.
     """
-
     def __init__(self,
                  table_name: str = 'haystack_pgvector_docs',
                  recreate_table: bool = False,
