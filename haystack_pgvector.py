@@ -720,9 +720,9 @@ class HaystackPgvector:
 
 def main() -> None:
     epub_file_path: str = "Federalist Papers.epub"
-    model: GeneratorModel = HuggingFaceLocalModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
+    # model: GeneratorModel = HuggingFaceLocalModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
     # model: GeneratorModel = GoogleGeminiModel(password=google_secret)
-    # model: GeneratorModel = HuggingFaceAPIModel(password=hf_secret, model_name="HuggingFaceH4/zephyr-7b-alpha")
+    model: GeneratorModel = HuggingFaceAPIModel(password=hf_secret, model_name="HuggingFaceH4/zephyr-7b-alpha")
     rag_processor: HaystackPgvector = HaystackPgvector(table_name="federalist_papers",
                                                        recreate_table=False,
                                                        book_file_path=epub_file_path,
