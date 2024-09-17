@@ -81,20 +81,14 @@ class RagPipeline:
         self._postgres_connection_str: str = (f"postgresql://{postgres_user_name}:{postgres_password}@"
                                               f"{postgres_host}:{postgres_port}/{postgres_db_name}")
 
-        self._setup_embedder()
-
         print("Initializing document store")
         self._document_store: Optional[PgvectorDocumentStore] = None
         self._initialize_document_store()
 
-        # Warm up _model
         if generator_model is None:
             raise ValueError("Generator model must be provided")
-        self._generator_model: Union[gen.GeneratorModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator] = (
-            generator_model)
-        # If the generator model has a warm_up method, call it
-        if hasattr(self._generator_model, 'warm_up'):
-            self._generator_model.warm_up()
+        self._generator_model: Optional[Union[gen.GeneratorModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator]]
+        self._generator_model = generator_model
 
         # Default prompt template
         # noinspection SpellCheckingInspection
@@ -157,10 +151,16 @@ class RagPipeline:
             if hasattr(self._sentence_embedder, 'warm_up'):
                 self._sentence_embedder.warm_up()
 
+    def _setup_generator(self) -> None:
+        # If the generator model has a warm_up method, call it
+        if hasattr(self._generator_model, 'warm_up'):
+            self._generator_model.warm_up()
+
     def draw_pipeline(self) -> None:
         """
         Draw and save visual representations of the RAG and document conversion pipelines.
         """
+        self._setup_generator()
         if self._rag_pipeline is not None:
             self._rag_pipeline.draw(Path("RAG Pipeline.png"))
 
@@ -231,6 +231,8 @@ class RagPipeline:
         print("Document Count: " + str(document_store.count_documents()))
 
     def _create_rag_pipeline(self) -> None:
+        self._setup_embedder()
+        self._setup_generator()
         prompt_builder: PromptBuilder = PromptBuilder(template=self._prompt_template)
 
         rag_pipeline: Pipeline = Pipeline()

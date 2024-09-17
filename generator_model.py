@@ -233,6 +233,7 @@ class HuggingFaceLocalModel(HuggingFaceModel):
         self._has_cuda: bool = torch.cuda.is_available()
         self._torch_device: torch.device = torch.device("cuda" if self._has_cuda else "cpu")
         self._component_device: ComponentDevice = ComponentDevice(Device.gpu() if self._has_cuda else Device.cpu())
+        self._warmed_up: bool = False
 
         self._model: HuggingFaceLocalGenerator = HuggingFaceLocalGenerator(
             model=self._model_name,
@@ -245,7 +246,9 @@ class HuggingFaceLocalModel(HuggingFaceModel):
             })
 
     def warm_up(self) -> None:
-        self._model.warm_up()
+        if not self._warmed_up:
+            self._model.warm_up()
+            self._warmed_up = True
 
     def language_model(self) -> object:
         return self._model.pipeline.model
