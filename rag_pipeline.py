@@ -39,20 +39,22 @@ class StreamingRetriever:
     def run(self, query_embedding: List[float]) -> Dict[str, Any]:
         # Create a dictionary for the expected format if necessary
         documents = self.retriever.run(query_embedding=query_embedding)['documents']
-
-        for i, doc in enumerate(documents, 1):
-            print(f"Document {i}:")
-            print(f"Score: {doc.score}")
-            if hasattr(doc, 'meta') and doc.meta:
-                if 'title' in doc.meta:
-                    print(f"Title: {doc.meta['title']}")
-                if 'section_num' in doc.meta:
-                    print(f"Section: {doc.meta['section_num']}")
-            print(f"Content: {doc.content}")
-            print("-" * 50)
-
+        print_documents(documents)
         # Return a dictionary with documents
         return {"documents": documents}
+
+
+def print_documents(documents: List[Document]) -> None:
+    for i, doc in enumerate(documents, 1):
+        print(f"Document {i}:")
+        print(f"Score: {doc.score}")
+        if hasattr(doc, 'meta') and doc.meta:
+            if 'title' in doc.meta:
+                print(f"Title: {doc.meta['title']}")
+            if 'section_num' in doc.meta:
+                print(f"Section: {doc.meta['section_num']}")
+        print(f"Content: {doc.content}")
+        print("-" * 50)
 
 
 class RagPipeline:
@@ -134,9 +136,7 @@ class RagPipeline:
         self._generator_model: Optional[Union[gen.GeneratorModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator]]
         self._generator_model = generator_model
         # Handle callbacks for streaming if applicable
-        if (self._use_streaming
-                and isinstance(self._generator_model, gen.GeneratorModel)
-                and hasattr(self._generator_model, 'streaming_callback')):
+        if self._can_stream() and self._generator_model.streaming_callback is None:
             self._generator_model.streaming_callback = streaming_callback
 
         # Default prompt template
@@ -229,8 +229,8 @@ class RagPipeline:
         }
 
         # Run the pipeline
-        if self._use_streaming:
-            results: Dict[str, Any] = self._rag_pipeline.run(inputs)
+        if self._can_stream():
+            self._rag_pipeline.run(inputs)
             # Document streaming and LLM streaming will be handled inside the components
         else:
             results: Dict[str, Any] = self._rag_pipeline.run(inputs)
@@ -239,16 +239,7 @@ class RagPipeline:
 
             # Print retrieved documents
             print("Retrieved Documents:")
-            for i, doc in enumerate(merged_results["documents"], 1):
-                print(f"Document {i}:")
-                print(f"Score: {doc.score}")
-                if hasattr(doc, 'meta') and doc.meta:
-                    if 'title' in doc.meta:
-                        print(f"Title: {doc.meta['title']}")
-                    if 'section_num' in doc.meta:
-                        print(f"Section: {doc.meta['section_num']}")
-                print(f"Content: {doc.content}")
-                print("-" * 50)
+            print_documents(merged_results["documents"])
 
             # Print generated response
             # noinspection SpellCheckingInspection
@@ -276,6 +267,12 @@ class RagPipeline:
         self._document_store = document_store
         print("Document Count: " + str(document_store.count_documents()))
 
+    def _can_stream(self) -> bool:
+        return (self._use_streaming
+                and self._generator_model is not None
+                and isinstance(self._generator_model, gen.GeneratorModel)
+                and hasattr(self._generator_model, 'streaming_callback'))
+
     def _create_rag_pipeline(self) -> None:
         self._setup_embedder()
         self._setup_generator()
@@ -288,7 +285,7 @@ class RagPipeline:
         rag_pipeline.add_component("prompt_builder", prompt_builder)
 
         # If streaming is enabled, use the StreamingRetriever
-        if self._use_streaming and self._generator_model.streaming_callback is not None:
+        if self._can_stream():
             streaming_retriever: StreamingRetriever = StreamingRetriever(
                 retriever=PgvectorEmbeddingRetriever(document_store=self._document_store, top_k=5))
             rag_pipeline.add_component("retriever", streaming_retriever)
@@ -303,7 +300,7 @@ class RagPipeline:
         else:
             rag_pipeline.add_component("llm", self._generator_model)
 
-        if not self._use_streaming:
+        if not self._can_stream():
             # Add the merger only when streaming is disabled
             rag_pipeline.add_component("merger", MergeResults())
             rag_pipeline.connect("retriever.documents", "merger.documents")
@@ -322,9 +319,9 @@ def main() -> None:
     postgres_password = gen.get_secret(r'D:\Documents\Secrets\postgres_password.txt')
     hf_secret: str = gen.get_secret(r'D:\Documents\Secrets\huggingface_secret.txt')  # Put your path here
     google_secret: str = gen.get_secret(r'D:\Documents\Secrets\gemini_secret.txt')  # Put your path here
-    model: gen.GeneratorModel = gen.HuggingFaceLocalModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
+    # model: gen.GeneratorModel = gen.HuggingFaceLocalModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
     # model: gen.GeneratorModel = gen.GoogleGeminiModel(password=google_secret)
-    # model: gen.GeneratorModel = gen.HuggingFaceAPIModel(password=hf_secret, model_name="HuggingFaceH4/zephyr-7b-alpha")
+    model: gen.GeneratorModel = gen.HuggingFaceAPIModel(password=hf_secret, model_name="HuggingFaceH4/zephyr-7b-alpha")
     rag_processor: RagPipeline = RagPipeline(table_name="federalist_papers",
                                              generator_model=model,
                                              postgres_user_name='postgres',
