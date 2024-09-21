@@ -21,6 +21,73 @@ from pathlib import Path
 from generator_model import get_secret
 
 
+@component
+class RemoveIllegalDocs:
+    @component.output_types(documents=List[Document])
+    def run(self, documents: List[Document]) -> Dict[str, List[Document]]:
+        documents = [Document(content=doc.content, meta=doc.meta) for doc in documents if doc.content is not None]
+        documents = list({doc.id: doc for doc in documents}.values())
+        return {"documents": documents}
+
+
+@component
+class CustomDocumentSplitter:
+    def __init__(self, embedder: SentenceTransformersDocumentEmbedder):
+        self.embedder: SentenceTransformersDocumentEmbedder = embedder
+        self.model: SentenceTransformer = embedder.embedding_backend.model
+        self.tokenizer = self.model.tokenizer
+        self.max_seq_length = self.model.get_max_seq_length()
+
+    @component.output_types(documents=List[Document])
+    def run(self, documents: List[Document]) -> dict:
+        processed_docs = []
+        for doc in documents:
+            processed_docs.extend(self.process_document(doc))
+
+        print(f"Processed {len(documents)} documents into {len(processed_docs)} documents")
+        return {"documents": processed_docs}
+
+    def process_document(self, document: Document) -> List[Document]:
+        token_count = self.count_tokens(document.content)
+
+        if token_count <= self.max_seq_length:
+            # Document fits within max sequence length, no need to split
+            return [document]
+
+        # Document exceeds max sequence length, find optimal split_length
+        split_docs = self.find_optimal_split(document)
+        return split_docs
+
+    def find_optimal_split(self, document: Document) -> List[Document]:
+        split_length = 10  # Start with 10 sentences
+        while split_length > 0:
+            splitter = DocumentSplitter(
+                split_by="sentence",
+                split_length=split_length,
+                split_overlap=min(1, split_length - 1),
+                split_threshold=min(3, split_length)
+            )
+            split_docs = splitter.run(documents=[document])["documents"]
+
+            # Check if all split documents fit within max_seq_length
+            if all(self.count_tokens(doc.content) <= self.max_seq_length for doc in split_docs):
+                return split_docs
+
+            # If not, reduce split_length and try again
+            split_length -= 1
+
+        # If we get here, even single sentences exceed max_seq_length
+        # So just let the splitter truncate the document
+        # But give warning that document was truncated
+        print(f"Document was truncated to fit within max sequence length of {self.max_seq_length}: "
+              f"Actual length: {self.count_tokens(document.content)}")
+        print(f"Problem Document: {document.content}")
+        return [document]
+
+    def count_tokens(self, text: str) -> int:
+        return len(self.tokenizer.encode(text))
+
+
 class DocumentProcessor:
     """
     A class that implements a Retrieval-Augmented Generation (RAG) system using Haystack and Pgvector.
@@ -144,71 +211,6 @@ class DocumentProcessor:
         if self._doc_convert_pipeline is not None:
             self._doc_convert_pipeline.draw(Path("Document Conversion Pipeline.png"))
 
-    @component
-    class _RemoveIllegalDocs:
-        @component.output_types(documents=List[Document])
-        def run(self, documents: List[Document]) -> Dict[str, List[Document]]:
-            documents = [Document(content=doc.content, meta=doc.meta) for doc in documents if doc.content is not None]
-            documents = list({doc.id: doc for doc in documents}.values())
-            return {"documents": documents}
-
-    @component
-    class _CustomDocumentSplitter:
-        def __init__(self, embedder: SentenceTransformersDocumentEmbedder):
-            self.embedder: SentenceTransformersDocumentEmbedder = embedder
-            self.model: SentenceTransformer = embedder.embedding_backend.model
-            self.tokenizer = self.model.tokenizer
-            self.max_seq_length = self.model.get_max_seq_length()
-
-        @component.output_types(documents=List[Document])
-        def run(self, documents: List[Document]) -> dict:
-            processed_docs = []
-            for doc in documents:
-                processed_docs.extend(self.process_document(doc))
-
-            print(f"Processed {len(documents)} documents into {len(processed_docs)} documents")
-            return {"documents": processed_docs}
-
-        def process_document(self, document: Document) -> List[Document]:
-            token_count = self.count_tokens(document.content)
-
-            if token_count <= self.max_seq_length:
-                # Document fits within max sequence length, no need to split
-                return [document]
-
-            # Document exceeds max sequence length, find optimal split_length
-            split_docs = self.find_optimal_split(document)
-            return split_docs
-
-        def find_optimal_split(self, document: Document) -> List[Document]:
-            split_length = 10  # Start with 10 sentences
-            while split_length > 0:
-                splitter = DocumentSplitter(
-                    split_by="sentence",
-                    split_length=split_length,
-                    split_overlap=min(1, split_length - 1),
-                    split_threshold=min(3, split_length)
-                )
-                split_docs = splitter.run(documents=[document])["documents"]
-
-                # Check if all split documents fit within max_seq_length
-                if all(self.count_tokens(doc.content) <= self.max_seq_length for doc in split_docs):
-                    return split_docs
-
-                # If not, reduce split_length and try again
-                split_length -= 1
-
-            # If we get here, even single sentences exceed max_seq_length
-            # So just let the splitter truncate the document
-            # But give warning that document was truncated
-            print(f"Document was truncated to fit within max sequence length of {self.max_seq_length}: "
-                  f"Actual length: {self.count_tokens(document.content)}")
-            print(f"Problem Document: {document.content}")
-            return [document]
-
-        def count_tokens(self, text: str) -> int:
-            return len(self.tokenizer.encode(text))
-
     def _load_epub(self) -> Tuple[List[ByteStream], List[Dict[str, str]]]:
         docs: List[ByteStream] = []
         meta: List[Dict[str, str]] = []
@@ -243,11 +245,11 @@ class DocumentProcessor:
     def _doc_converter_pipeline(self) -> None:
         self._setup_embedder()
         # Create the custom splitter
-        custom_splitter = self._CustomDocumentSplitter(self._sentence_embedder)
+        custom_splitter: CustomDocumentSplitter = CustomDocumentSplitter(self._sentence_embedder)
         # Create the document conversion pipeline
         doc_convert_pipe: Pipeline = Pipeline()
         doc_convert_pipe.add_component("converter", HTMLToDocument())
-        doc_convert_pipe.add_component("remove_illegal_docs", instance=self._RemoveIllegalDocs())
+        doc_convert_pipe.add_component("remove_illegal_docs", instance=RemoveIllegalDocs())
         doc_convert_pipe.add_component("cleaner", DocumentCleaner())
         doc_convert_pipe.add_component("splitter", custom_splitter)
         doc_convert_pipe.add_component("embedder", self._sentence_embedder)

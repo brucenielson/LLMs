@@ -17,6 +17,44 @@ from pathlib import Path
 import generator_model as gen
 
 
+@component
+class MergeResults:
+    @component.output_types(merged_results=Dict[str, Any])
+    def run(self, documents: List[Document],
+            replies: List[Union[str, Dict[str, str]]]) -> Dict[str, Dict[str, Any]]:
+        return {
+            "merged_results": {
+                "documents": documents,
+                "replies": replies
+            }
+        }
+
+
+@component
+class StreamingRetriever:
+    def __init__(self, retriever: PgvectorEmbeddingRetriever):
+        self.retriever = retriever
+
+    @component.output_types(documents=List[Document])
+    def run(self, query_embedding: List[float]) -> Dict[str, Any]:
+        # Create a dictionary for the expected format if necessary
+        documents = self.retriever.run(query_embedding=query_embedding)['documents']
+
+        for i, doc in enumerate(documents, 1):
+            print(f"Document {i}:")
+            print(f"Score: {doc.score}")
+            if hasattr(doc, 'meta') and doc.meta:
+                if 'title' in doc.meta:
+                    print(f"Title: {doc.meta['title']}")
+                if 'section_num' in doc.meta:
+                    print(f"Section: {doc.meta['section_num']}")
+            print(f"Content: {doc.content}")
+            print("-" * 50)
+
+        # Return a dictionary with documents
+        return {"documents": documents}
+
+
 class RagPipeline:
     """
     A class that implements a Retrieval-Augmented Generation (RAG) system using Haystack and Pgvector.
@@ -183,30 +221,36 @@ class RagPipeline:
             query (str): The input query to process.
         """
         print("Generating Response...")
-        results: Dict[str, Any] = self._rag_pipeline.run({
+
+        # Prepare inputs for the pipeline
+        inputs: Dict[str, Any] = {
             "query_embedder": {"text": query},
             "prompt_builder": {"query": query}
-        })
+        }
 
-        merged_results = results["merger"]["merged_results"]
+        # Run the pipeline
+        if self._use_streaming:
+            results: Dict[str, Any] = self._rag_pipeline.run(inputs)
+            # Document streaming and LLM streaming will be handled inside the components
+        else:
+            results: Dict[str, Any] = self._rag_pipeline.run(inputs)
 
-        # Print retrieved documents
-        print("Retrieved Documents:")
-        for i, doc in enumerate(merged_results["documents"], 1):
-            print(f"Document {i}:")
-            print(f"Score: {doc.score}")
-            if hasattr(doc, 'meta') and doc.meta:
-                if 'title' in doc.meta:
-                    print(f"Title: {doc.meta['title']}")
-                if 'section_num' in doc.meta:
-                    print(f"Section: {doc.meta['section_num']}")
-            print(f"Content: {doc.content}")
-            print("-" * 50)
+            merged_results = results["merger"]["merged_results"]
 
-        # Print generated response
-        if not (self._use_streaming
-                and hasattr(self._generator_model, 'streaming_callback')
-                and self._generator_model.streaming_callback is not None):
+            # Print retrieved documents
+            print("Retrieved Documents:")
+            for i, doc in enumerate(merged_results["documents"], 1):
+                print(f"Document {i}:")
+                print(f"Score: {doc.score}")
+                if hasattr(doc, 'meta') and doc.meta:
+                    if 'title' in doc.meta:
+                        print(f"Title: {doc.meta['title']}")
+                    if 'section_num' in doc.meta:
+                        print(f"Section: {doc.meta['section_num']}")
+                print(f"Content: {doc.content}")
+                print("-" * 50)
+
+            # Print generated response
             # noinspection SpellCheckingInspection
             print("\nLLM's Response:")
             if merged_results["replies"]:
@@ -214,18 +258,6 @@ class RagPipeline:
                 print(answer)
             else:
                 print("No response was generated.")
-
-    @component
-    class _MergeResults:
-        @component.output_types(merged_results=Dict[str, Any])
-        def run(self, documents: List[Document],
-                replies: List[Union[str, Dict[str, str]]]) -> Dict[str, Dict[str, Any]]:
-            return {
-                "merged_results": {
-                    "documents": documents,
-                    "replies": replies
-                }
-            }
 
     def _initialize_document_store(self) -> None:
         connection_token: Secret = Secret.from_token(self._postgres_connection_str)
@@ -250,26 +282,39 @@ class RagPipeline:
         prompt_builder: PromptBuilder = PromptBuilder(template=self._prompt_template)
 
         rag_pipeline: Pipeline = Pipeline()
-        # Use Cuda is possible
+
+        # Add the query embedder and the prompt builder
         rag_pipeline.add_component("query_embedder", self._sentence_embedder)
-        rag_pipeline.add_component("retriever", PgvectorEmbeddingRetriever(document_store=self._document_store,
-                                                                           top_k=5))
         rag_pipeline.add_component("prompt_builder", prompt_builder)
+
+        # If streaming is enabled, use the StreamingRetriever
+        if self._use_streaming and self._generator_model.streaming_callback is not None:
+            streaming_retriever: StreamingRetriever = StreamingRetriever(
+                retriever=PgvectorEmbeddingRetriever(document_store=self._document_store, top_k=5))
+            rag_pipeline.add_component("retriever", streaming_retriever)
+        else:
+            # Use the standard retriever if not streaming
+            rag_pipeline.add_component("retriever",
+                                       PgvectorEmbeddingRetriever(document_store=self._document_store, top_k=5))
+
+        # Add the LLM component
         if isinstance(self._generator_model, gen.GeneratorModel):
             rag_pipeline.add_component("llm", self._generator_model.generator_component)
         else:
             rag_pipeline.add_component("llm", self._generator_model)
-        # Add a new component to merge results
-        rag_pipeline.add_component("merger", self._MergeResults())
 
+        if not self._use_streaming:
+            # Add the merger only when streaming is disabled
+            rag_pipeline.add_component("merger", MergeResults())
+            rag_pipeline.connect("retriever.documents", "merger.documents")
+            rag_pipeline.connect("llm.replies", "merger.replies")
+
+        # Connect the components for both streaming and non-streaming scenarios
         rag_pipeline.connect("query_embedder.embedding", "retriever.query_embedding")
         rag_pipeline.connect("retriever.documents", "prompt_builder.documents")
         rag_pipeline.connect("prompt_builder", "llm")
 
-        # Connect the retriever and llm to the merger
-        rag_pipeline.connect("retriever.documents", "merger.documents")
-        rag_pipeline.connect("llm.replies", "merger.replies")
-
+        # Set the pipeline instance
         self._rag_pipeline = rag_pipeline
 
 
@@ -277,9 +322,9 @@ def main() -> None:
     postgres_password = gen.get_secret(r'D:\Documents\Secrets\postgres_password.txt')
     hf_secret: str = gen.get_secret(r'D:\Documents\Secrets\huggingface_secret.txt')  # Put your path here
     google_secret: str = gen.get_secret(r'D:\Documents\Secrets\gemini_secret.txt')  # Put your path here
-    # model: gen.GeneratorModel = gen.HuggingFaceLocalModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
+    model: gen.GeneratorModel = gen.HuggingFaceLocalModel(password=hf_secret, model_name="google/gemma-1.1-2b-it")
     # model: gen.GeneratorModel = gen.GoogleGeminiModel(password=google_secret)
-    model: gen.GeneratorModel = gen.HuggingFaceAPIModel(password=hf_secret, model_name="HuggingFaceH4/zephyr-7b-alpha")
+    # model: gen.GeneratorModel = gen.HuggingFaceAPIModel(password=hf_secret, model_name="HuggingFaceH4/zephyr-7b-alpha")
     rag_processor: RagPipeline = RagPipeline(table_name="federalist_papers",
                                              generator_model=model,
                                              postgres_user_name='postgres',
