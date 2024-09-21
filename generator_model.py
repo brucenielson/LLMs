@@ -1,6 +1,7 @@
 # Hugging Face and Pytorch imports
 import torch
 import huggingface_hub as hf_hub
+from haystack.dataclasses import StreamingChunk
 from transformers import AutoConfig
 # Haystack imports
 from haystack.components.generators import HuggingFaceLocalGenerator
@@ -9,7 +10,7 @@ from haystack.components.generators import HuggingFaceAPIGenerator
 from haystack.utils import ComponentDevice, Device
 from haystack.utils.auth import Secret
 # Other imports
-from typing import Optional, Union
+from typing import Optional, Union, Callable
 from abc import ABC, abstractmethod
 
 
@@ -143,6 +144,7 @@ class HuggingFaceModel(GeneratorModel, ABC):
                  max_new_tokens: int = 500,
                  temperature: float = 0.6,
                  password: Optional[str] = None,
+                 streaming_callback: Optional[Callable[[StreamingChunk], None]] = None,
                  verbose: bool = False) -> None:
         """
         Initialize the HuggingFaceModel instance.
@@ -159,6 +161,7 @@ class HuggingFaceModel(GeneratorModel, ABC):
         self._max_new_tokens: int = max_new_tokens
         self._temperature: float = temperature
         self._model_name: str = model_name
+        self._streaming_callback: Optional[Callable[[StreamingChunk], None]] = streaming_callback
 
         if password is not None:
             hf_hub.login(password, add_to_git_credential=False)
@@ -188,7 +191,7 @@ class HuggingFaceModel(GeneratorModel, ABC):
     @property
     def embedding_dimensions(self) -> Optional[int]:
         # TODO: Need to test if this really gives us the embedder dims.
-        #  Works correctly for SentenceTransformersTextEmbedder
+        #  Does NOT work correctly for SentenceTransformersTextEmbedder. There should be a better approach.
         try:
             config: AutoConfig = AutoConfig.from_pretrained(self._model_name)
         except Exception as e:
@@ -197,8 +200,22 @@ class HuggingFaceModel(GeneratorModel, ABC):
         embedding_dims: Optional[int] = getattr(config, 'hidden_size', None)
         return embedding_dims
 
+    @property
+    def streaming_callback(self) -> Optional[Callable[[StreamingChunk], None]]:
+        return self._streaming_callback
+
+    @streaming_callback.setter
+    def streaming_callback(self, value: callable(StreamingChunk)) -> None:
+        self._streaming_callback = value
+
     def generate(self, prompt: str) -> str:
         return self._model.run(prompt)
+
+    def _default_streaming_callback_func(self, chunk: StreamingChunk):
+        # This is a callback function that is used to stream the output of the generator.
+        # If you are not using a streaming generator, you can ignore this method.
+        if self._streaming_callback is not None:
+            self._streaming_callback(chunk)
 
 
 class HuggingFaceLocalModel(HuggingFaceModel):
@@ -213,6 +230,7 @@ class HuggingFaceLocalModel(HuggingFaceModel):
                  temperature: float = 0.6,
                  password: Optional[str] = None,
                  task: str = "text-generation",
+                 streaming_callback: Optional[Callable[[StreamingChunk], None]] = None,
                  verbose: bool = True) -> None:
         """
         Initialize the HuggingFaceLocalModel instance.
@@ -226,7 +244,7 @@ class HuggingFaceLocalModel(HuggingFaceModel):
             verbose (bool, optional): Whether to print verbose output. Defaults to True.
         """
         super().__init__(verbose=verbose, model_name=model_name, max_new_tokens=max_new_tokens,
-                         temperature=temperature, password=password)
+                         temperature=temperature, password=password, streaming_callback=streaming_callback)
 
         # Local model related variables
         self._task: str = task
@@ -239,6 +257,7 @@ class HuggingFaceLocalModel(HuggingFaceModel):
             model=self._model_name,
             task="text-generation",
             device=self._component_device,
+            streaming_callback=self._default_streaming_callback_func,
             generation_kwargs={
                 "max_new_tokens": self._max_new_tokens,
                 "temperature": self._temperature,
@@ -265,6 +284,7 @@ class HuggingFaceAPIModel(HuggingFaceModel):
                  max_new_tokens: int = 500,
                  password: Optional[str] = None,
                  temperature: float = 0.6,
+                 streaming_callback: Optional[Callable[[StreamingChunk], None]] = None,
                  verbose: bool = True) -> None:
         """
         Initialize the GeneratorModel instance.
@@ -273,7 +293,7 @@ class HuggingFaceAPIModel(HuggingFaceModel):
             model_name (str): Name of the language model to use.
         """
         super().__init__(verbose=verbose, model_name=model_name, max_new_tokens=max_new_tokens,
-                         temperature=temperature, password=password)
+                         temperature=temperature, password=password, streaming_callback=streaming_callback)
 
         self._max_new_tokens: int = max_new_tokens
         self._temperature: float = temperature
@@ -285,6 +305,7 @@ class HuggingFaceAPIModel(HuggingFaceModel):
                 "model": self._model_name,
             },
             token=Secret.from_token(password),
+            streaming_callback=self._default_streaming_callback_func,
             generation_kwargs={
                 "max_new_tokens": self._max_new_tokens,
                 "temperature": self._temperature,

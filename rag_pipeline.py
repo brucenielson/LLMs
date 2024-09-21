@@ -5,6 +5,7 @@ from haystack import Pipeline, Document, component
 from haystack.components.embedders import SentenceTransformersDocumentEmbedder, SentenceTransformersTextEmbedder
 from haystack.components.builders import PromptBuilder
 from haystack.components.generators import HuggingFaceLocalGenerator
+from haystack.dataclasses import StreamingChunk
 from haystack_integrations.components.generators.google_ai import GoogleAIGeminiGenerator
 from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
 from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
@@ -48,6 +49,7 @@ class RagPipeline:
                  postgres_db_name: str = 'postgres',
                  generator_model: Union[gen.GeneratorModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator] = None,
                  embedder_model_name: Optional[str] = None,
+                 use_streaming: bool = False
                  ) -> None:
         """
         Initialize the HaystackPgvector instance.
@@ -63,11 +65,15 @@ class RagPipeline:
                 Language model to use for text generation.
             embedder_model_name (Optional[str]): Name of the embedding model to use.
         """
+        # streaming_callback function to print to screen
+        def streaming_callback(chunk: StreamingChunk) -> None:
+            print(chunk.content, end='')
 
         # Instance variables
         self._table_name: str = table_name
         self._sentence_embedder: Optional[SentenceTransformersDocumentEmbedder] = None
         self._embedder_model_name: Optional[str] = embedder_model_name
+        self._use_streaming: bool = use_streaming
 
         # GPU or CPU
         self._has_cuda: bool = torch.cuda.is_available()
@@ -89,6 +95,11 @@ class RagPipeline:
             raise ValueError("Generator model must be provided")
         self._generator_model: Optional[Union[gen.GeneratorModel, HuggingFaceLocalGenerator, GoogleAIGeminiGenerator]]
         self._generator_model = generator_model
+        # Handle callbacks for streaming if applicable
+        if (self._use_streaming
+                and isinstance(self._generator_model, gen.GeneratorModel)
+                and hasattr(self._generator_model, 'streaming_callback')):
+            self._generator_model.streaming_callback = streaming_callback
 
         # Default prompt template
         # noinspection SpellCheckingInspection
@@ -193,13 +204,16 @@ class RagPipeline:
             print("-" * 50)
 
         # Print generated response
-        # noinspection SpellCheckingInspection
-        print("\nLLM's Response:")
-        if merged_results["replies"]:
-            answer: str = merged_results["replies"][0]
-            print(answer)
-        else:
-            print("No response was generated.")
+        if not (self._use_streaming
+                and hasattr(self._generator_model, 'streaming_callback')
+                and self._generator_model.streaming_callback is not None):
+            # noinspection SpellCheckingInspection
+            print("\nLLM's Response:")
+            if merged_results["replies"]:
+                answer: str = merged_results["replies"][0]
+                print(answer)
+            else:
+                print("No response was generated.")
 
     @component
     class _MergeResults:
@@ -273,6 +287,7 @@ def main() -> None:
                                              postgres_host='localhost',
                                              postgres_port=5432,
                                              postgres_db_name='postgres',
+                                             use_streaming=True,
                                              embedder_model_name="Alibaba-NLP/gte-large-en-v1.5")
 
     # Draw images of the pipelines
